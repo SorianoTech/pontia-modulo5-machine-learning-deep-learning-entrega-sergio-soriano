@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: ["master", "main"]
+  pull_request:
+    branches: ["master", "main"]
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Smoke train
+        run: |
+          python trainer.py --quick --skip-neural-net
+
+      - name: API smoke test
+        run: |
+          python -c "from fastapi.testclient import TestClient; from src.api import app; c = TestClient(app); r = c.get('/health'); assert r.status_code == 200"
