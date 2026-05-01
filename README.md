@@ -16,7 +16,7 @@ Este proyecto implementa un sistema automatico para entrenar, evaluar y comparar
 
 ## Bonus fase 2 implementados
 - Tracking de experimentos con MLflow (runs, parametros, metricas y artefactos)
-- Persistencia local de runs desde FastAPI en `outputs/runs_registry.json`
+- Persistencia local de runs desde FastAPI en SQLite: `outputs/runs.db`
 - Tuning de hiperparametros del mejor modelo base (Random Forest) con GridSearchCV o RandomizedSearchCV
 
 ## Justificacion de metricas
