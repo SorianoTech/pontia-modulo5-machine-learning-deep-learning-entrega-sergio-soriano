@@ -19,6 +19,50 @@ Este proyecto implementa un sistema automatico para entrenar, evaluar y comparar
 - Persistencia local de runs desde FastAPI en SQLite: `outputs/runs.db`
 - Tuning de hiperparametros del mejor modelo base (Random Forest) con GridSearchCV o RandomizedSearchCV
 
+## Tuning de hiperparametros
+
+### Que es el tuning
+El tuning (o ajuste de hiperparametros) es el proceso de buscar la combinacion optima de configuraciones de un modelo que maximiza su rendimiento. A diferencia de los parametros del modelo (que se aprenden durante el entrenamiento), los hiperparametros se fijan antes de entrenar y controlan el comportamiento del algoritmo. Por ejemplo, en Random Forest: el numero de arboles (`n_estimators`), la profundidad maxima (`max_depth`) o el numero de features a considerar en cada split (`max_features`).
+
+En este proyecto el tuning se aplica sobre el modelo con mejor AUC-ROC base y busca mejorar su rendimiento sin cambiar el codigo de entrenamiento principal.
+
+### GridSearchCV
+Prueba **todas las combinaciones posibles** del espacio de busqueda definido. Es exhaustivo: si defines 3 valores para `n_estimators`, 3 para `max_depth` y 2 para `max_features`, evaluara 3 × 3 × 2 = 18 combinaciones, cada una con k-fold cross-validation.
+
+**Ventaja:** garantiza encontrar el mejor resultado dentro del espacio definido.  
+**Inconveniente:** coste computacional muy alto si el espacio de busqueda es grande.  
+**Cuando usarlo:** espacios pequenos y cuando el tiempo de entrenamiento lo permite.
+
+### RandomizedSearchCV
+Prueba un numero fijo de combinaciones **elegidas al azar** del espacio de busqueda (controlado por `n_iter`). No evalua todas las posibilidades, sino una muestra representativa.
+
+**Ventaja:** mucho mas rapido; con `n_iter=15-20` suele encontrar resultados muy proximos al optimo en una fraccion del tiempo.  
+**Inconveniente:** no garantiza encontrar la combinacion exactamente optima.  
+**Cuando usarlo:** espacios de busqueda grandes, recursos limitados o en fases de prototipado rapido.
+
+### Comparativa rapida
+
+| | GridSearchCV | RandomizedSearchCV |
+|---|---|---|
+| Tipo de busqueda | Exhaustiva | Aleatoria |
+| Combinaciones evaluadas | Todas | `n_iter` (configurable) |
+| Tiempo de ejecucion | Alto | Bajo |
+| Garantia de optimo | Si (dentro del espacio) | No |
+| Recomendado para | Espacios pequenos | Espacios grandes |
+
+### Configuracion en este proyecto
+El tuning se aplica sobre el pipeline completo (preprocesador + clasificador) del modelo ganador. Se puede activar desde la CLI o la API:
+
+```bash
+# Randomized (15 iteraciones, 3-fold CV)
+python trainer.py --enable-tuning --tuning-method randomized --tuning-iter 15 --tuning-cv 3
+
+# Grid (busqueda exhaustiva, 3-fold CV)
+python trainer.py --enable-tuning --tuning-method grid --tuning-cv 3
+```
+
+El modelo tuneado se registra con el sufijo `_tuned` y compite con el resto en la tabla de metricas. Si supera al modelo base, pasa a ser el `best_model.pkl`.
+
 ## Justificacion de metricas
 **Metrica principal: AUC-ROC**
 
