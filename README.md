@@ -14,6 +14,11 @@ Este proyecto implementa un sistema automatico para entrenar, evaluar y comparar
 - Gradient Boosting (XGBoost si esta disponible, fallback a GradientBoostingClassifier)
 - Red neuronal multicapa (MLP)
 
+## Bonus fase 2 implementados
+- Tracking de experimentos con MLflow (runs, parametros, metricas y artefactos)
+- Persistencia local de runs desde FastAPI en `outputs/runs_registry.json`
+- Tuning de hiperparametros del mejor modelo base (Random Forest) con GridSearchCV o RandomizedSearchCV
+
 ## Justificacion de metricas
 **Metrica principal: AUC-ROC**
 
@@ -66,6 +71,17 @@ Opciones:
 ```bash
 python trainer.py --quick
 python trainer.py --quick --skip-neural-net
+python trainer.py --enable-tuning --tuning-method randomized --tuning-iter 20
+python trainer.py --enable-tuning --tuning-method grid --tuning-cv 3
+python trainer.py --disable-mlflow
+```
+
+## MLflow
+El tracking URI se configura en modo local (file store) y guarda runs en `mlruns/`.
+
+Para abrir UI de MLflow:
+```bash
+mlflow ui --backend-store-uri file:./mlruns
 ```
 
 ## API FastAPI
@@ -79,6 +95,10 @@ Endpoints requeridos:
 - `POST /predict`
 - `GET /evaluate`
 
+Endpoints bonus de persistencia de runs:
+- `GET /runs`
+- `GET /runs/{run_id}`
+
 Endpoint extra de salud:
 - `GET /health`
 
@@ -86,7 +106,12 @@ Ejemplo `POST /train`:
 ```json
 {
   "quick_mode": true,
-  "skip_neural_net": false
+  "skip_neural_net": false,
+  "enable_tuning": true,
+  "tuning_method": "randomized",
+  "tuning_cv": 3,
+  "tuning_iter": 15,
+  "enable_mlflow": true
 }
 ```
 

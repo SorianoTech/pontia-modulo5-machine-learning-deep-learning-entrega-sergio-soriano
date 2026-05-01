@@ -13,6 +13,8 @@ models/*.pkl
 models/*.joblib
 outputs/*.png
 outputs/*.csv
+outputs/*.json
+mlruns/
 
 # Notebook checkpoints
 .ipynb_checkpoints/

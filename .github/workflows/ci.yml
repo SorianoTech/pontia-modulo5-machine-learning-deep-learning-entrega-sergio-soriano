@@ -26,7 +26,7 @@ jobs:
 
       - name: Smoke train
         run: |
-          python trainer.py --quick --skip-neural-net
+          python trainer.py --quick --skip-neural-net --disable-mlflow
 
       - name: API smoke test
         run: |
