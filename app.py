@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import json
 
 import pandas as pd
 import streamlit as st
@@ -8,7 +9,31 @@ import streamlit as st
 from src import config
 from src.data_loader import build_data_bundle
 from src.predictor import predict_from_payload
+from src.run_repository import list_runs
 from trainer import run_pipeline
+
+
+def _sanitize_for_json(value):
+    if isinstance(value, dict):
+        return {k: _sanitize_for_json(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_sanitize_for_json(v) for v in value]
+    if pd.isna(value):
+        return None
+    return value
+
+
+def _parse_payload(text: str) -> dict:
+    # Prefer strict JSON parsing first.
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        # Fallback for Python-style dicts pasted by the user.
+        payload = ast.literal_eval(text)
+
+    if not isinstance(payload, dict):
+        raise ValueError("El payload debe ser un objeto JSON (diccionario clave-valor).")
+    return payload
 
 st.set_page_config(page_title="Hotel Cancellation ML", layout="wide")
 
@@ -21,12 +46,29 @@ if mode == "Entrenar":
     st.subheader("Entrenamiento")
     quick_mode = st.checkbox("Quick mode", value=True)
     skip_neural_net = st.checkbox("Saltar red neuronal", value=False)
+    enable_tuning = st.checkbox("Activar tuning (Grid/Randomized)", value=False)
+    tuning_method = st.selectbox("Método de tuning", options=["randomized", "grid"], index=0)
+    tuning_cv = st.slider("Folds CV", min_value=2, max_value=5, value=3)
+    tuning_iter = st.slider("Iteraciones Randomized", min_value=5, max_value=40, value=15)
+    enable_mlflow = st.checkbox("Activar tracking MLflow", value=True)
 
     if st.button("Ejecutar entrenamiento", type="primary"):
         with st.spinner("Entrenando modelos..."):
-            result = run_pipeline(quick_mode=quick_mode, skip_neural_net=skip_neural_net)
+            result = run_pipeline(
+                quick_mode=quick_mode,
+                skip_neural_net=skip_neural_net,
+                enable_tuning=enable_tuning,
+                tuning_method=tuning_method,
+                tuning_cv=tuning_cv,
+                tuning_iter=tuning_iter,
+                enable_mlflow=enable_mlflow,
+            )
 
         st.success(f"Mejor modelo: {result['best_model']}")
+        if result.get("mlflow_run_id"):
+            st.info(f"MLflow run id: {result['mlflow_run_id']}")
+        if result.get("tuning"):
+            st.json({"tuning": result["tuning"]})
         st.dataframe(result["metrics"], use_container_width=True)
 
 elif mode == "Evaluar":
@@ -46,23 +88,33 @@ elif mode == "Evaluar":
     if fi_path.exists():
         st.image(str(fi_path), caption="Importancia de variables (Random Forest)")
 
+    st.divider()
+    st.subheader("Histórico de runs")
+    runs = list_runs(limit=20)
+    if runs:
+        st.dataframe(pd.DataFrame(runs), use_container_width=True)
+    else:
+        st.info("No hay runs persistidos todavía.")
+
 elif mode == "Predecir":
     st.subheader("Predicción individual")
 
     try:
         bundle = build_data_bundle()
-        sample = bundle.X_test.iloc[0].to_dict()
+        sample = _sanitize_for_json(bundle.X_test.iloc[0].to_dict())
     except Exception:
         sample = {}
 
-    st.write("Rellena los campos en formato JSON. Puedes usar este ejemplo:")
-    st.code(str(sample), language="python")
+    example_text = json.dumps(sample, ensure_ascii=False, indent=2)
 
-    input_text = st.text_area("Features (dict)", value=str(sample), height=220)
+    st.write("Rellena los campos en formato JSON. Puedes usar este ejemplo:")
+    st.code(example_text, language="json")
+
+    input_text = st.text_area("Features (JSON)", value=example_text, height=260)
 
     if st.button("Predecir", type="primary"):
         try:
-            payload = ast.literal_eval(input_text)
+            payload = _parse_payload(input_text)
             result = predict_from_payload(payload)
             st.success(f"Predicción: {result['prediction']} | Prob cancelación: {result['probability_canceled']}")
             st.json(result)
