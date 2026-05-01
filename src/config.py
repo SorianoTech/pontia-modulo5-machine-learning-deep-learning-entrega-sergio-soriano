@@ -5,6 +5,9 @@ DATA_PATH = BASE_DIR / "data" / "raw" / "dataset_practica_final.csv"
 MODELS_DIR = BASE_DIR / "models"
 OUTPUTS_DIR = BASE_DIR / "outputs"
 METRICS_PATH = OUTPUTS_DIR / "metrics_summary.csv"
+MLFLOW_TRACKING_URI = f"file:{(BASE_DIR / 'mlruns').as_posix()}"
+MLFLOW_EXPERIMENT_NAME = "hotel_cancellation_pipeline"
+RUNS_REGISTRY_PATH = OUTPUTS_DIR / "runs_registry.json"
 
 TARGET_COLUMN = "is_canceled"
 LEAKAGE_COLUMNS = ["reservation_status", "reservation_status_date"]
@@ -14,6 +17,9 @@ TEST_SIZE = 0.2
 
 PRIMARY_METRIC = "roc_auc"
 SECONDARY_METRICS = ["accuracy", "precision", "recall", "f1"]
+DEFAULT_TUNING_METHOD = "randomized"
+DEFAULT_TUNING_CV = 3
+DEFAULT_TUNING_ITER = 15
 
 MODELS_DIR.mkdir(parents=True, exist_ok=True)
 OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
