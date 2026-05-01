@@ -7,7 +7,8 @@ OUTPUTS_DIR = BASE_DIR / "outputs"
 METRICS_PATH = OUTPUTS_DIR / "metrics_summary.csv"
 MLFLOW_TRACKING_URI = f"file:{(BASE_DIR / 'mlruns').as_posix()}"
 MLFLOW_EXPERIMENT_NAME = "hotel_cancellation_pipeline"
-RUNS_REGISTRY_PATH = OUTPUTS_DIR / "runs_registry.json"
+RUNS_DB_PATH = OUTPUTS_DIR / "runs.db"
+LEGACY_RUNS_REGISTRY_PATH = OUTPUTS_DIR / "runs_registry.json"
 
 TARGET_COLUMN = "is_canceled"
 LEAKAGE_COLUMNS = ["reservation_status", "reservation_status_date"]

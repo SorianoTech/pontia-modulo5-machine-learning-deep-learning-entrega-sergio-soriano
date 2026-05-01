@@ -87,7 +87,7 @@ def runs(limit: int = 20) -> dict[str, Any]:
     return {
         "count": len(results),
         "results": results,
-        "registry_file": str(config.RUNS_REGISTRY_PATH),
+        "registry_file": str(config.RUNS_DB_PATH),
     }
 
 
