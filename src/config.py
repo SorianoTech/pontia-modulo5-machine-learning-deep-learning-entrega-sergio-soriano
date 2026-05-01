@@ -1,0 +1,19 @@
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+DATA_PATH = BASE_DIR / "data" / "raw" / "dataset_practica_final.csv"
+MODELS_DIR = BASE_DIR / "models"
+OUTPUTS_DIR = BASE_DIR / "outputs"
+METRICS_PATH = OUTPUTS_DIR / "metrics_summary.csv"
+
+TARGET_COLUMN = "is_canceled"
+LEAKAGE_COLUMNS = ["reservation_status", "reservation_status_date"]
+
+RANDOM_STATE = 42
+TEST_SIZE = 0.2
+
+PRIMARY_METRIC = "roc_auc"
+SECONDARY_METRICS = ["accuracy", "precision", "recall", "f1"]
+
+MODELS_DIR.mkdir(parents=True, exist_ok=True)
+OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
