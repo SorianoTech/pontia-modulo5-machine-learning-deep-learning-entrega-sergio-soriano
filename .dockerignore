@@ -1,0 +1,16 @@
+.git
+.github
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+notebooks/
+mlruns/
+models/
+outputs/
+*.ipynb

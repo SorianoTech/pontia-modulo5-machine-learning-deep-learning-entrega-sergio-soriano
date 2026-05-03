@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -5,7 +6,9 @@ DATA_PATH = BASE_DIR / "data" / "raw" / "dataset_practica_final.csv"
 MODELS_DIR = BASE_DIR / "models"
 OUTPUTS_DIR = BASE_DIR / "outputs"
 METRICS_PATH = OUTPUTS_DIR / "metrics_summary.csv"
-MLFLOW_TRACKING_URI = f"file:{(BASE_DIR / 'mlruns').as_posix()}"
+MLFLOW_TRACKING_URI = os.getenv(
+    "MLFLOW_TRACKING_URI", f"file:{(BASE_DIR / 'mlruns').as_posix()}"
+)
 MLFLOW_EXPERIMENT_NAME = "hotel_cancellation_pipeline"
 RUNS_DB_PATH = OUTPUTS_DIR / "runs.db"
 LEGACY_RUNS_REGISTRY_PATH = OUTPUTS_DIR / "runs_registry.json"

@@ -15,7 +15,8 @@ Este proyecto implementa un sistema automatico para entrenar, evaluar y comparar
 - Red neuronal multicapa (MLP)
 
 ## Bonus fase 2 implementados
-- Tracking de experimentos con MLflow (runs, parametros, metricas y artefactos)
+- Tracking de experimentos con MLflow (runs, parametros, metricas y artefactos) con backend PostgreSQL
+- Servidor MLflow UI accesible en `http://localhost:5000`
 - Persistencia local de runs desde FastAPI en SQLite: `outputs/runs.db`
 - Tuning de hiperparametros del mejor modelo base (Random Forest) con GridSearchCV o RandomizedSearchCV
 
@@ -81,8 +82,11 @@ Se utiliza AUC-ROC como metrica principal porque:
 ```
 entregable/
 ├── .github/workflows/ci.yml
+├── .env.example
 ├── app.py
 ├── trainer.py
+├── Dockerfile
+├── docker-compose.yml
 ├── requirements.txt
 ├── data/raw/dataset_practica_final.csv
 ├── notebooks/
@@ -96,6 +100,11 @@ entregable/
     ├── model_trainer.py
     ├── evaluator.py
     ├── predictor.py
+    ├── predictor.py
+    ├── run_repository.py
+    ├── tuning.py
+    ├── mlflow_tracker.py
+    ├── api_models.py
     └── api.py
 ```
 
@@ -106,6 +115,83 @@ python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
 ```
+
+## Docker Compose
+Se incluye una configuracion lista para levantar todos los servicios como contenedores independientes.
+
+### Servicios
+| Servicio | Responsabilidad | Puerto |
+|---|---|---|
+| `api` | FastAPI — inferencia y endpoints REST | 8000 |
+| `streamlit` | Interfaz de usuario | 8501 |
+| `mlflow` | Servidor MLflow UI y tracking | 5000 |
+| `postgres` | Backend de almacenamiento de MLflow | 5432 |
+| `trainer` | Job de entrenamiento batch (perfil `jobs`) | — |
+
+### Archivos incluidos
+- `Dockerfile`: imagen Python 3.11 multi-stage compartida por todos los servicios de la aplicacion.
+- `docker-compose.yml`: orquestacion completa con dependencias y healthchecks.
+- `.env.example`: plantilla de variables de entorno.
+
+### Puesta en marcha
+```bash
+# Windows PowerShell:
+Copy-Item .env.example .env
+
+# Bash:
+cp .env.example .env
+
+# Edita .env y cambia POSTGRES_PASSWORD antes de continuar
+
+docker compose up --build
+```
+
+Servicios expuestos:
+- API FastAPI: `http://localhost:8000`
+- Healthcheck API: `http://localhost:8000/health`
+- Streamlit: `http://localhost:8501`
+- MLflow UI: `http://localhost:5000`
+
+### Orden de arranque
+```
+postgres (healthy)
+    └── mlflow
+            ├── api (healthy)
+            │       └── streamlit
+            └── trainer  (solo con --profile jobs)
+```
+
+### Entrenar desde Docker
+Opcion 1: usando la interfaz Streamlit (`http://localhost:8501`), que delega el entrenamiento en la API.
+
+Opcion 2: lanzando el job de entrenamiento:
+```bash
+docker compose run --rm trainer python trainer.py --quick --skip-neural-net
+```
+
+Los artefactos persistentes se guardan en volumenes Docker:
+- `models` -> modelos serializados (`.pkl`)
+- `outputs` -> metricas CSV, graficos PNG y `runs.db`
+- `mlruns` -> artefactos de MLflow
+- `postgres_data` -> base de datos PostgreSQL de MLflow
+
+### Variables de entorno (`.env`)
+| Variable | Descripcion | Default |
+|---|---|---|
+| `APP_IMAGE` | Tag de la imagen Docker | `hotel-cancellation-ml:latest` |
+| `API_PORT` | Puerto host para la API | `8000` |
+| `STREAMLIT_PORT` | Puerto host para Streamlit | `8501` |
+| `MLFLOW_PORT` | Puerto host para MLflow UI | `5000` |
+| `UVICORN_LOG_LEVEL` | Nivel de log de uvicorn | `info` |
+| `POSTGRES_USER` | Usuario de PostgreSQL | `mlflow` |
+| `POSTGRES_PASSWORD` | Contrasena de PostgreSQL | `mlflow` |
+| `POSTGRES_DB` | Base de datos de PostgreSQL | `mlflow` |
+| `POSTGRES_PORT` | Puerto host para PostgreSQL | `5432` |
+
+### Notas
+- La primera vez, `predict` y la vista de evaluacion no tendran artefactos hasta ejecutar un entrenamiento.
+- El dataset se monta como volumen de solo lectura desde `./data` — no es necesario reconstruir la imagen para cambiar los datos.
+- Cambia `POSTGRES_PASSWORD` en `.env` antes de desplegar en produccion.
 
 ## Ejecucion del pipeline
 ```bash
@@ -121,12 +207,21 @@ python trainer.py --disable-mlflow
 ```
 
 ## MLflow
-El tracking URI se configura en modo local (file store) y guarda runs en `mlruns/`.
+MLflow corre como servicio independiente con backend PostgreSQL y almacenamiento de artefactos en el volumen `mlruns`.
 
-Para abrir UI de MLflow:
+Con Docker Compose, la UI esta disponible automaticamente en `http://localhost:5000` al hacer `docker compose up`.
+
+Para desarrollo local sin Docker:
 ```bash
+# Usar file store local
 mlflow ui --backend-store-uri file:./mlruns
+
+# O apuntar al servidor de PostgreSQL si esta corriendo
+export MLFLOW_TRACKING_URI=http://localhost:5000
+python trainer.py
 ```
+
+El tracking URI puede sobreescribirse con la variable de entorno `MLFLOW_TRACKING_URI`. Todos los contenedores la reciben configurada automaticamente via `docker-compose.yml`.
 
 ## API FastAPI
 Lanzar servidor:

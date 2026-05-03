@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import ast
 import json
+import os
 
+import httpx
 import pandas as pd
 import streamlit as st
 
@@ -10,7 +12,8 @@ from src import config
 from src.data_loader import build_data_bundle
 from src.predictor import predict_from_payload
 from src.run_repository import list_runs
-from trainer import run_pipeline
+
+API_URL = os.getenv("API_URL", "http://api:8000")
 
 
 def _sanitize_for_json(value):
@@ -54,22 +57,35 @@ if mode == "Entrenar":
 
     if st.button("Ejecutar entrenamiento", type="primary"):
         with st.spinner("Entrenando modelos..."):
-            result = run_pipeline(
-                quick_mode=quick_mode,
-                skip_neural_net=skip_neural_net,
-                enable_tuning=enable_tuning,
-                tuning_method=tuning_method,
-                tuning_cv=tuning_cv,
-                tuning_iter=tuning_iter,
-                enable_mlflow=enable_mlflow,
-            )
+            try:
+                resp = httpx.post(
+                    f"{API_URL}/train",
+                    json={
+                        "quick_mode": quick_mode,
+                        "skip_neural_net": skip_neural_net,
+                        "enable_tuning": enable_tuning,
+                        "tuning_method": tuning_method,
+                        "tuning_cv": tuning_cv,
+                        "tuning_iter": tuning_iter,
+                        "enable_mlflow": enable_mlflow,
+                    },
+                    timeout=600.0,
+                )
+                resp.raise_for_status()
+                result = resp.json()
+            except httpx.RequestError as exc:
+                st.error(f"Error al conectar con la API: {exc}")
+                st.stop()
+            except httpx.HTTPStatusError as exc:
+                st.error(f"Error en la API ({exc.response.status_code}): {exc.response.text}")
+                st.stop()
 
         st.success(f"Mejor modelo: {result['best_model']}")
         if result.get("mlflow_run_id"):
             st.info(f"MLflow run id: {result['mlflow_run_id']}")
         if result.get("tuning"):
             st.json({"tuning": result["tuning"]})
-        st.dataframe(result["metrics"], use_container_width=True)
+        st.dataframe(pd.DataFrame(result["metrics"]), use_container_width=True)
 
 elif mode == "Evaluar":
     st.subheader("Evaluación")

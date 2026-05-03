@@ -1,0 +1,155 @@
+services:
+  api:
+    image: ${APP_IMAGE:-hotel-cancellation-ml:latest}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command:
+      - uvicorn
+      - src.api:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --log-level
+      - ${UVICORN_LOG_LEVEL:-info}
+    ports:
+      - "${API_PORT:-8000}:8000"
+    environment:
+      PYTHONUNBUFFERED: "1"
+      MLFLOW_TRACKING_URI: "http://mlflow:5000"
+    volumes:
+      - models:/app/models
+      - outputs:/app/outputs
+      - mlruns:/app/mlruns
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)"
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+    depends_on:
+      mlflow:
+        condition: service_started
+
+  streamlit:
+    image: ${APP_IMAGE:-hotel-cancellation-ml:latest}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command:
+      - streamlit
+      - run
+      - app.py
+      - --server.address=0.0.0.0
+      - --server.port=8501
+      - --server.headless=true
+    ports:
+      - "${STREAMLIT_PORT:-8501}:8501"
+    environment:
+      PYTHONUNBUFFERED: "1"
+      API_URL: "http://api:8000"
+      MLFLOW_TRACKING_URI: "http://mlflow:5000"
+    volumes:
+      - models:/app/models
+      - outputs:/app/outputs
+      - mlruns:/app/mlruns
+      - ./data:/app/data:ro
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8501', timeout=5)"
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+    depends_on:
+      api:
+        condition: service_healthy
+      mlflow:
+        condition: service_started
+
+  trainer:
+    image: ${APP_IMAGE:-hotel-cancellation-ml:latest}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["python", "trainer.py"]
+    environment:
+      PYTHONUNBUFFERED: "1"
+      MLFLOW_TRACKING_URI: "http://mlflow:5000"
+    volumes:
+      - models:/app/models
+      - outputs:/app/outputs
+      - mlruns:/app/mlruns
+      - ./data:/app/data:ro
+    profiles: ["jobs"]
+    restart: "no"
+    depends_on:
+      mlflow:
+        condition: service_started
+
+  mlflow:
+    image: ${APP_IMAGE:-hotel-cancellation-ml:latest}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command:
+      - mlflow
+      - server
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "5000"
+      - --backend-store-uri
+      - "postgresql://${POSTGRES_USER:-mlflow}:${POSTGRES_PASSWORD:-mlflow}@postgres:5432/${POSTGRES_DB:-mlflow}"
+      - --default-artifact-root
+      - "file:///app/mlruns"
+    ports:
+      - "${MLFLOW_PORT:-5000}:5000"
+    volumes:
+      - mlruns:/app/mlruns
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-mlflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mlflow}
+      POSTGRES_DB: ${POSTGRES_DB:-mlflow}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-mlflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mlflow}
+      POSTGRES_DB: ${POSTGRES_DB:-mlflow}
+    #ports:
+    #  - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mlflow} -d ${POSTGRES_DB:-mlflow}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+volumes:
+  models:
+  outputs:
+  mlruns:
+  postgres_data:

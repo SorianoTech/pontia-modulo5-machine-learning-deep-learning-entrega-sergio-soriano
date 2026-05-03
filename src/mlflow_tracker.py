@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 import mlflow
+from mlflow.models import infer_signature
 
 from src import config
 
@@ -29,5 +30,14 @@ class MLflowTracker:
         mlflow.log_artifact(str(path))
 
     @staticmethod
-    def log_model(model, artifact_path: str = "model") -> None:
-        mlflow.sklearn.log_model(model, artifact_path=artifact_path)
+    def log_model(model, input_example=None, artifact_path: str = "model") -> None:
+        signature = None
+        if input_example is not None:
+            signature = infer_signature(input_example, model.predict(input_example))
+
+        mlflow.sklearn.log_model(
+            model,
+            artifact_path=artifact_path,
+            input_example=input_example,
+            signature=signature,
+        )

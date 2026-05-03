@@ -28,3 +28,7 @@ Thumbs.db
 
 # Secrets
 .env
+
+agents/
+copilot-instructions.md
+

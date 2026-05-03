@@ -123,7 +123,7 @@ def run_pipeline(
             if fi_path.exists():
                 tracker.log_artifact(fi_path)
 
-            tracker.log_model(best_model, artifact_path="best_model")
+            tracker.log_model(best_model, input_example=bundle.X_train.head(5), artifact_path="best_model")
 
     return {
         "best_model": best_name,
