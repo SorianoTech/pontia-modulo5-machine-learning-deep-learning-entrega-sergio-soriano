@@ -157,6 +157,29 @@ entregable/
     └── api.py
 ```
 
+## Arquitectura general
+```
+dataset_practica_final.csv
+        │
+        ▼
+  data_loader.py          → carga, limpieza, split 80/20, preprocesador
+        │
+        ▼
+  model_trainer.py        → entrena 5 modelos en pipeline (preprocesador + clasificador)
+        │
+        ▼
+  evaluator.py            → calcula métricas, genera gráficos ROC / CM / feature importance
+        │
+        ▼
+  tuning.py (opcional)    → GridSearchCV / RandomizedSearchCV sobre el mejor modelo
+        │
+        ▼
+  best_model.pkl          → modelo ganador serializado con joblib
+        │
+        ▼
+  mlflow_tracker.py       → registra params, métricas y artefactos en MLflow
+```
+
 ## Instalacion
 ```bash
 python -m venv .venv
