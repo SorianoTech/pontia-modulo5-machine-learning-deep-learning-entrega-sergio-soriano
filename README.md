@@ -2,10 +2,59 @@
 
 Este proyecto implementa un sistema automatico para entrenar, evaluar y comparar modelos de clasificacion binaria para predecir si una reserva hotelera sera cancelada (`is_canceled`).
 
+## Autores
+
+| Nombre              | Rol principal    |
+|---------------------|------------------|
+| Sergio Soriano      | Por definir      |
+| Guillermo Parés     | Por definir      |
+
 ## Dataset
 - Origen: `data/raw/dataset_practica_final.csv`
 - Target: `is_canceled` (0 = no cancelada, 1 = cancelada)
 - Columnas de leakage eliminadas: `reservation_status`, `reservation_status_date`
+
+## Justificación del problema
+
+Las cancelaciones de reservas hoteleras representan uno de los mayores retos operativos del sector. Cuando un cliente cancela, el hotel pierde ingresos que ya había planificado y, si la cancelación es tardía, difícilmente puede volver a vender esa habitación. En paralelo, el overbooking como estrategia defensiva genera experiencias negativas si no se calibra bien.
+
+Predecir con antelación si una reserva va a cancelarse permite al hotel tomar decisiones proactivas:
+- Ajustar la política de overbooking de forma inteligente.
+- Priorizar esfuerzos comerciales en reservas de alto riesgo.
+- Optimizar la gestión de inventario y precios dinámicos.
+
+---
+
+## Análisis exploratorio de datos
+
+El EDA completo se encuentra en `notebooks/exploracion/eda_inicial.ipynb`. A continuación se recogen los hallazgos más relevantes.
+
+### Desbalanceo de clases
+
+El dataset presenta un desbalanceo moderado: aproximadamente el **37% de las reservas son canceladas** frente al 63% que no lo son.
+
+### Valores nulos
+
+| Columna | Nulos | Tratamiento |
+|---|---|---|
+| `children` | 4 | Imputación con 0 (ausencia de niños) |
+| `country` | 488 | Imputación con `'Unknown'` |
+| `agent` | 16.340 (13,7%) | Transformada en variable binaria `has_agent` |
+| `company` | 112.593 (94,3%) | Eliminada — prácticamente vacía |
+
+### Correlaciones con el target
+
+Las variables con mayor correlación (positiva) con `is_canceled`:
+- `lead_time`: a más antelación, más probabilidad de cancelación.
+- `previous_cancellations`: historial de cancelaciones previas es el predictor más directo.
+- `deposit_type` (No Refund): depósitos no reembolsables paradójicamente asociados a más cancelaciones.
+
+Variables con correlación negativa (reducen probabilidad de cancelación):
+- `total_of_special_requests`: más peticiones especiales indican mayor intención de viajar.
+- `required_car_parking_spaces`: reservas con parking se cancelan menos.
+- `booking_changes`: cambios en la reserva indican mayor compromiso del cliente.
+
+---
 
 ## Modelos incluidos
 - Regresion Logistica
