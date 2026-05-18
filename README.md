@@ -63,6 +63,22 @@ Variables con correlación negativa (reducen probabilidad de cancelación):
 - Gradient Boosting (XGBoost si esta disponible, fallback a GradientBoostingClassifier)
 - Red neuronal multicapa (MLP)
 
+## Resultados
+
+Entrenamiento completo sobre el dataset (119.390 reservas, split 80/20, semilla 42). Métrica principal: **AUC-ROC**.
+
+| Modelo | Accuracy | Precision | Recall | F1-score | AUC-ROC |
+|---|---|---|---|---|---|
+| **Random Forest** | 0.8948 | 0.8940 | 0.8123 | 0.8512 | **0.9590** |
+| Neural Network | 0.8728 | 0.8531 | 0.7931 | 0.8220 | 0.9447 |
+| Gradient Boosting | 0.8626 | 0.8597 | 0.7518 | 0.8022 | 0.9397 |
+| Decision Tree | 0.8296 | 0.7852 | 0.7434 | 0.7637 | 0.9092 |
+| Logistic Regression | 0.8188 | 0.8119 | 0.6648 | 0.7310 | 0.8961 |
+
+**Modelo ganador: Random Forest** con AUC-ROC de 0.959 — el mejor en todas las métricas. La red neuronal queda segunda en AUC-ROC pese a tener menos accuracy que Random Forest, lo que refleja mejor capacidad de separación entre clases.
+
+---
+
 ## Bonus fase 2 implementados
 - Tracking de experimentos con MLflow (runs, parametros, metricas y artefactos) con backend PostgreSQL
 - Servidor MLflow UI accesible en `http://localhost:5000`
