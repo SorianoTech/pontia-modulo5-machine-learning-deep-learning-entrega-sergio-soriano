@@ -28,8 +28,27 @@ def load_raw_data(path: str | None = None) -> pd.DataFrame:
     return pd.read_csv(csv_path)
 
 
+def clean_data(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+
+    df["children"] = df["children"].fillna(0)
+    df["country"] = df["country"].fillna("Unknown")
+
+    # NaN in 'agent' means direct booking (no agent), encode as binary flag
+    df["has_agent"] = df["agent"].notnull().astype(int)
+    df = df.drop(columns=["agent"])
+
+    return df
+
+
 def prepare_features(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
     working_df = df.copy()
+
+    working_df["children"] = working_df["children"].fillna(0)
+    working_df["country"] = working_df["country"].fillna("Unknown")
+
+    # NaN in 'agent' means direct booking (no agent), encode as binary flag
+    working_df["has_agent"] = working_df["agent"].notnull().astype(int)
 
     for col in config.LEAKAGE_COLUMNS:
         if col in working_df.columns:
@@ -81,6 +100,7 @@ def split_data(X: pd.DataFrame, y: pd.Series) -> tuple[pd.DataFrame, pd.DataFram
 
 def build_data_bundle(path: str | None = None) -> DataBundle:
     df = load_raw_data(path)
+    df = clean_data(df)
     X, y = prepare_features(df)
     X_train, X_test, y_train, y_test = split_data(X, y)
     preprocessor = build_preprocessor(X_train)
