@@ -30,30 +30,47 @@ def load_raw_data(path: str | None = None) -> pd.DataFrame:
 
 def prepare_features(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
     working_df = df.copy()
+    # La columna "children" se rellena con 0 donde hay valores nulos. (Significa que no hay niños en la reserva)
+    working_df["children"] = working_df["children"].fillna(0)
+    
+    # La columna "country" se rellena con "Unknown" donde hay valores nulos. (Significa que el país de origen no se especificó)
+    working_df["country"] = working_df["country"].fillna("Unknown")
 
+    
+    # Agente nulo significa reserva directa (sin agente), asignar un indicador binario, astype(int) convierte True a 1 y False a 0
+    # Se añade la columna "has_agent", que vale 1 si la columna "agent" no es nula (es decir, la reserva fue hecha por un agente) y 0 si es nula (reserva directa).
+    working_df["has_agent"] = working_df["agent"].notnull().astype(int)
+    
+    # Se eliminan columnas de fuga de información, como "reservation_status" y "reservation_status_date", que podrían revelar el resultado de la reserva (si se canceló o no) y la fecha de esa información, lo que no estaría disponible en el momento de la predicción.
+    # La idea es predecir la cancelación de la reserva antes de que ocurra, por lo que no se deben incluir columnas que contengan información que solo estaría disponible después de la reserva.
     for col in config.LEAKAGE_COLUMNS:
         if col in working_df.columns:
             working_df = working_df.drop(columns=col)
-
+    # Comprobamos que la columna objetivo esta en el DataFrame, por seguridad. Si no está, se lanza un error para evitar problemas posteriores en el pipeline de entrenamiento.
     if config.TARGET_COLUMN not in working_df.columns:
         raise ValueError(f"Target column '{config.TARGET_COLUMN}' not found in dataset")
-
+    # Separamos la columna objetivo del resto de las características. La columna objetivo se convierte a tipo entero (0 o 1) para asegurar que el modelo de clasificación pueda procesarla correctamente.
     y = working_df[config.TARGET_COLUMN].astype(int)
+    # Se eliminan del DataFrame las columnas objetivo, dejando solo las variables predictoras (X) para el entrenamiento del modelo. Esto asegura que el modelo no tenga acceso a la información de la variable objetivo durante el proceso de aprendizaje.
     X = working_df.drop(columns=[config.TARGET_COLUMN])
+    
     return X, y
 
 
 def build_preprocessor(X: pd.DataFrame) -> ColumnTransformer:
+    # Se identifican las columnas numéricas y categóricas en el DataFrame X. Las columnas numéricas se seleccionan utilizando select_dtypes con include=["number"].
+    # mientras que las columnas categóricas se seleccionan utilizando exclude=["number"].
     numeric_features = X.select_dtypes(include=["number"]).columns.tolist()
     categorical_features = X.select_dtypes(exclude=["number"]).columns.tolist()
 
+    # Numéricas: median + StandardScaler 
     numeric_transformer = Pipeline(
         steps=[
             ("imputer", SimpleImputer(strategy="median")),
             ("scaler", StandardScaler()),
         ]
     )
-
+    # Categóricas: most_frequent + OneHotEncoder (handle_unknown="ignore" para evitar errores con categorías no vistas en el conjunto de entrenamiento, sparse_output=False para obtener una matriz densa)
     categorical_transformer = Pipeline(
         steps=[
             ("imputer", SimpleImputer(strategy="most_frequent")),
