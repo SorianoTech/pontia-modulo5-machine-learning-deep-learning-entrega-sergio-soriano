@@ -6,12 +6,18 @@ from typing import Dict, Tuple
 
 import joblib
 import numpy as np
-from sklearn.base import ClassifierMixin
+from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
-from sklearn.neural_network import MLPClassifier
 from sklearn.pipeline import Pipeline
 from sklearn.tree import DecisionTreeClassifier
+
+try:
+    import tensorflow as tf
+    from tensorflow import keras
+    HAS_KERAS = True
+except ImportError:
+    HAS_KERAS = False
 
 from src import config
 from src.data_loader import DataBundle
@@ -22,6 +28,61 @@ try:
     HAS_XGBOOST = True
 except ImportError:
     HAS_XGBOOST = False
+
+
+class KerasClassifier(BaseEstimator, ClassifierMixin):
+
+    def __init__(self, epochs: int = 50, batch_size: int = 256, learning_rate: float = 0.001) -> None:
+
+        # Número de veces que el modelo verá todos los datos de entrenamiento
+        self.epochs = epochs
+
+        # Número de muestras que se procesan juntas antes de actualizar los pesos
+        self.batch_size = batch_size
+
+        # Velocidad a la que el optimizador ajusta los pesos
+        self.learning_rate = learning_rate
+
+    def fit(self, X, y):
+
+        # Keras trabaja con float32; el preprocesador de sklearn devuelve float64
+        X = np.array(X, dtype="float32")
+        y = np.array(y, dtype="float32")
+
+        # Arquitectura de la red: tres capas densas (fully connected)
+        #   - Capa 1: 64 neuronas con ReLU
+        #   - Capa 2: 32 neuronas con ReLU
+        #   - Capa 3: 1 neurona con sigmoide → devuelve una probabilidad entre 0 y 1
+        self.model_ = keras.Sequential([
+            keras.layers.Dense(64, activation="relu", input_shape=(X.shape[1],)),
+            keras.layers.Dense(32, activation="relu"),
+            keras.layers.Dense(1, activation="sigmoid"),
+        ])
+
+        # Configuración del entrenamiento:
+        #   - Adam: optimizador que adapta el learning rate automáticamente
+        #   - binary_crossentropy: función de pérdida estándar para clasificación binaria
+        self.model_.compile(
+            optimizer=keras.optimizers.Adam(learning_rate=self.learning_rate),
+            loss="binary_crossentropy",
+        )
+
+        self.model_.fit(X, y, epochs=self.epochs, batch_size=self.batch_size, verbose=0)
+        return self
+
+    def predict_proba(self, X) -> np.ndarray:
+        X = np.array(X, dtype="float32")
+
+        # model_.predict devuelve shape (n, 1) → flatten lo convierte a (n,)
+        proba = self.model_.predict(X, verbose=0).flatten()
+
+        # sklearn espera columnas [prob_clase_0, prob_clase_1]
+        return np.column_stack([1 - proba, proba])
+
+    def predict(self, X) -> np.ndarray:
+        
+        # Si la probabilidad de cancelación supera 0.5 → predice 1 (cancelado)
+        return (self.predict_proba(X)[:, 1] >= 0.5).astype(int)
 
 
 @dataclass
@@ -50,13 +111,10 @@ class ModelTrainer:
         }
 
         if not self.skip_neural_net:
-            estimators["neural_network"] = MLPClassifier(
-                hidden_layer_sizes=(64, 32),
-                activation="relu",
-                learning_rate_init=0.001,
-                max_iter=50 if self.quick_mode else 200,
-                early_stopping=True,
-                random_state=config.RANDOM_STATE,
+            if not HAS_KERAS:
+                raise ImportError("Instala TensorFlow con: pip install tensorflow")
+            estimators["neural_network"] = KerasClassifier(
+                epochs=10 if self.quick_mode else 50,
             )
 
         return estimators
