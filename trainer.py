@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import nullcontext
 from datetime import datetime
+from pathlib import Path
+from time import perf_counter
 
 import pandas as pd
 
@@ -22,6 +25,10 @@ def _to_float_metrics(row: dict) -> dict[str, float]:
     return out
 
 
+def _elapsed_seconds(start_time: float) -> float:
+    return round(perf_counter() - start_time, 3)
+
+
 def run_pipeline(
     data_path: str | None = None,
     quick_mode: bool = False,
@@ -32,63 +39,84 @@ def run_pipeline(
     tuning_iter: int = config.DEFAULT_TUNING_ITER,
     enable_mlflow: bool = True,
 ):
-    bundle = build_data_bundle(data_path)
-
-    trainer = ModelTrainer(bundle, quick_mode=quick_mode, skip_neural_net=skip_neural_net)
-    trained = trainer.train_all()
-
-    evaluator = Evaluator(bundle.y_test, bundle.X_test, trained.models)
-    metrics_df = evaluator.evaluate()
-    evaluator.plot_roc_curves()
-    evaluator.plot_confusion_matrices()
-    evaluator.plot_feature_importance("random_forest")
-
-    best_row = metrics_df.iloc[0]
-    best_name = str(best_row["model"])
-    best_model = trained.models[best_name]
-
-    tuning_result = None
-    tuned_model_name = f"{best_name}_tuned"
-    if enable_tuning and best_name == "random_forest":
-        tuned_model, tuning_result = tune_pipeline(
-            pipeline=best_model,
-            X_train=bundle.X_train,
-            y_train=bundle.y_train,
-            method=tuning_method,
-            cv=tuning_cv,
-            n_iter=tuning_iter,
-            scoring=config.PRIMARY_METRIC,
+    mlflow_run_id = None
+    tracker = MLflowTracker() if enable_mlflow else None
+    run_name = f"pipeline-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+    run_context = (
+        tracker.start_run(
+            run_name=run_name,
+            tags={"project": "hotel-cancellation", "pipeline": "baseline+bonus-phase2"},
         )
+        if tracker
+        else nullcontext()
+    )
+    pipeline_started_at = perf_counter()
 
-        trained.models[tuned_model_name] = tuned_model
-        tuned_eval = Evaluator(bundle.y_test, bundle.X_test, {tuned_model_name: tuned_model}).evaluate()
-        metrics_df = (
-            metrics_df[metrics_df["model"] != tuned_model_name]
-            .pipe(lambda df: df if df.empty else df)
-            .reset_index(drop=True)
-        )
-        metrics_df = (
-            pd.concat([metrics_df, tuned_eval], ignore_index=True)
-            .sort_values(by=config.PRIMARY_METRIC, ascending=False)
-            .reset_index(drop=True)
-        )
-        metrics_df.to_csv(config.METRICS_PATH, index=False)
+    with run_context as run:
+        if run is not None:
+            mlflow_run_id = run.info.run_id
+
+        data_stage_started_at = perf_counter()
+        bundle = build_data_bundle(data_path)
+        data_loading_seconds = _elapsed_seconds(data_stage_started_at)
+
+        trainer = ModelTrainer(bundle, quick_mode=quick_mode, skip_neural_net=skip_neural_net)
+        training_stage_started_at = perf_counter()
+        trained = trainer.train_all()
+        training_seconds = _elapsed_seconds(training_stage_started_at)
+
+        evaluation_stage_started_at = perf_counter()
+        evaluator = Evaluator(bundle.y_test, bundle.X_test, trained.models)
+        metrics_df = evaluator.evaluate()
+        roc_path = evaluator.plot_roc_curves()
+        confusion_paths = evaluator.plot_confusion_matrices()
+        fi_path = evaluator.plot_feature_importance("random_forest")
+        evaluation_seconds = _elapsed_seconds(evaluation_stage_started_at)
 
         best_row = metrics_df.iloc[0]
         best_name = str(best_row["model"])
         best_model = trained.models[best_name]
 
-    best_model_path = trainer.save_best_model(best_model, best_name)
+        tuning_result = None
+        tuning_seconds = 0.0
+        tuned_model_name = f"{best_name}_tuned"
+        if enable_tuning and best_name == "random_forest":
+            tuning_stage_started_at = perf_counter()
+            tuned_model, tuning_result = tune_pipeline(
+                pipeline=best_model,
+                X_train=bundle.X_train,
+                y_train=bundle.y_train,
+                method=tuning_method,
+                cv=tuning_cv,
+                n_iter=tuning_iter,
+                scoring=config.PRIMARY_METRIC,
+            )
+            tuning_seconds = _elapsed_seconds(tuning_stage_started_at)
 
-    mlflow_run_id = None
-    if enable_mlflow:
-        tracker = MLflowTracker()
-        run_name = f"pipeline-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
-        with tracker.start_run(
-            run_name=run_name,
-            tags={"project": "hotel-cancellation", "pipeline": "baseline+bonus-phase2"},
-        ) as run:
-            mlflow_run_id = run.info.run_id
+            trained.models[tuned_model_name] = tuned_model
+            tuned_eval = Evaluator(bundle.y_test, bundle.X_test, {tuned_model_name: tuned_model}).evaluate()
+            metrics_df = (
+                metrics_df[metrics_df["model"] != tuned_model_name]
+                .pipe(lambda df: df if df.empty else df)
+                .reset_index(drop=True)
+            )
+            metrics_df = (
+                pd.concat([metrics_df, tuned_eval], ignore_index=True)
+                .sort_values(by=config.PRIMARY_METRIC, ascending=False)
+                .reset_index(drop=True)
+            )
+            metrics_df.to_csv(config.METRICS_PATH, index=False)
+
+            best_row = metrics_df.iloc[0]
+            best_name = str(best_row["model"])
+            best_model = trained.models[best_name]
+
+        persistence_stage_started_at = perf_counter()
+        best_model_path = trainer.save_best_model(best_model, best_name)
+        persistence_seconds = _elapsed_seconds(persistence_stage_started_at)
+
+        if tracker:
+            logging_stage_started_at = perf_counter()
             tracker.log_params(
                 {
                     "quick_mode": quick_mode,
@@ -98,6 +126,11 @@ def run_pipeline(
                     "tuning_cv": tuning_cv,
                     "tuning_iter": tuning_iter,
                     "best_model": best_name,
+                    "train_rows": len(bundle.X_train),
+                    "test_rows": len(bundle.X_test),
+                    "feature_count": len(bundle.feature_names),
+                    "tracked_model_count": len(metrics_df),
+                    "data_path": str(Path(data_path).resolve()) if data_path else str(config.DATA_PATH),
                 }
             )
 
@@ -110,20 +143,32 @@ def run_pipeline(
                 best_tuning_score = tuning_result.get("best_score")
                 if best_tuning_score is not None:
                     tracker.log_metrics({"tuning_best_cv_score": float(best_tuning_score)})
-                tracker.log_params({
-                    "tuning_best_params": str(tuning_result.get("best_params", {})),
-                })
+                tracker.log_params(
+                    {
+                        "tuning_best_params": str(tuning_result.get("best_params", {})),
+                    }
+                )
 
             tracker.log_artifact(config.METRICS_PATH)
-            roc_path = config.OUTPUTS_DIR / "roc_curves.png"
-            if roc_path.exists():
-                tracker.log_artifact(roc_path)
-
-            fi_path = config.OUTPUTS_DIR / "feature_importance_random_forest.png"
-            if fi_path.exists():
+            tracker.log_artifact(roc_path)
+            for confusion_path in confusion_paths:
+                tracker.log_artifact(confusion_path)
+            if fi_path is not None:
                 tracker.log_artifact(fi_path)
 
             tracker.log_model(best_model, input_example=bundle.X_train.head(5), artifact_path="best_model")
+            logging_seconds = _elapsed_seconds(logging_stage_started_at)
+            tracker.log_metrics(
+                {
+                    "data_loading_seconds": data_loading_seconds,
+                    "training_seconds": training_seconds,
+                    "evaluation_seconds": evaluation_seconds,
+                    "tuning_seconds": tuning_seconds,
+                    "persistence_seconds": persistence_seconds,
+                    "mlflow_logging_seconds": logging_seconds,
+                    "total_pipeline_seconds": _elapsed_seconds(pipeline_started_at),
+                }
+            )
 
     return {
         "best_model": best_name,
