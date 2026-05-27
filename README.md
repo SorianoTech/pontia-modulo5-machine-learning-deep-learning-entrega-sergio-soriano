@@ -80,7 +80,7 @@ Entrenamiento completo sobre el dataset (119.390 reservas, split 80/20, semilla 
 ---
 
 ## Bonus fase 2 implementados
-- Tracking de experimentos con MLflow (runs, parametros, metricas y artefactos) con backend PostgreSQL
+- Tracking de experimentos con MLflow (runs, parametros, metricas, duraciones por etapa y artefactos) con backend PostgreSQL
 - Servidor MLflow UI accesible en `http://localhost:5000`
 - Persistencia local de runs desde FastAPI en SQLite: `outputs/runs.db`
 - Tuning de hiperparametros del mejor modelo base (Random Forest) con GridSearchCV o RandomizedSearchCV
