@@ -35,6 +35,12 @@ def prepare_features(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
     
     # La columna "country" se rellena con "Unknown" donde hay valores nulos. (Significa que el país de origen no se especificó)
     working_df["country"] = working_df["country"].fillna("Unknown")
+    # Para evitar la alta cardinalidad en la columna "country", se agrupan los países menos frecuentes en una categoría "Other". Se identifican los 10 países más comunes y se reemplazan los demás con "Other". Esto ayuda a reducir la cantidad de categorías únicas y mejora la capacidad del modelo para generalizar.
+    top_countries = working_df["country"].value_counts().nlargest(10).index
+    working_df["country"] = working_df["country"].where(
+        working_df["country"].isin(top_countries),
+        "Other",
+    )
 
     
     # Agente nulo significa reserva directa (sin agente), asignar un indicador binario, astype(int) convierte True a 1 y False a 0
@@ -85,7 +91,8 @@ def build_preprocessor(X: pd.DataFrame) -> ColumnTransformer:
         ]
     )
 
-
+# La función split_data utiliza train_test_split de scikit-learn para dividir el conjunto de datos en entrenamiento y prueba. Se especifica un tamaño de prueba (test_size) y una semilla aleatoria (random_state) para garantizar la reproducibilidad.
+#  Además, se utiliza stratify=y para asegurar que la proporción de clases en la variable objetivo se mantenga igual en ambos conjuntos, lo que es especialmente importante en problemas de clasificación con clases desbalanceadas.
 def split_data(X: pd.DataFrame, y: pd.Series) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series, pd.Series]:
     return train_test_split(
         X,
@@ -95,7 +102,7 @@ def split_data(X: pd.DataFrame, y: pd.Series) -> tuple[pd.DataFrame, pd.DataFram
         stratify=y,
     )
 
-
+# La función build_data_bundle es la función principal que orquesta todo el proceso de carga y preparación de datos. Primero, carga los datos crudos utilizando load_raw_data, luego prepara las características y la variable objetivo con prepare_features, divide los datos en conjuntos de entrenamiento y prueba con split_data, y finalmente construye el preprocesador con build_preprocessor.
 def build_data_bundle(path: str | None = None) -> DataBundle:
     df = load_raw_data(path)
     X, y = prepare_features(df)
