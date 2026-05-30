@@ -25,7 +25,7 @@ from src.model_trainer import ensure_probabilities
 
 
 class Evaluator:
-    def __init__(self, y_true: pd.Series, X_test: pd.DataFrame, models: Dict[str, Pipeline]) -> None:
+    def __init__(self, y_true: pd.Series, X_test: pd.DataFrame, models: Dict[str, object]) -> None:
         self.y_true = y_true
         self.X_test = X_test
         self.models = models
@@ -91,6 +91,9 @@ class Evaluator:
             return None
 
         model = self.models[model_name]
+        if not hasattr(model, "named_steps"):
+            return None
+
         classifier = model.named_steps["classifier"]
         if not hasattr(classifier, "feature_importances_"):
             return None

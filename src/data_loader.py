@@ -41,9 +41,6 @@ def prepare_features(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
         working_df["country"].isin(top_countries),
         "Other",
     )
-
-    # Eliminamos los registros con valores repetidos
-    working_df = working_df.drop_duplicates()
     
     # Agente nulo significa reserva directa (sin agente), asignar un indicador binario, astype(int) convierte True a 1 y False a 0
     # Se añade la columna "has_agent", que vale 1 si la columna "agent" no es nula (es decir, la reserva fue hecha por un agente) y 0 si es nula (reserva directa).
