@@ -251,6 +251,12 @@ docker compose up -d --build
 docker compose up -d
 ```
 
+Nota sobre el override:
+- En desarrollo, no hace falta lanzar solo el archivo override.
+- `docker compose up -d` ya carga automaticamente `docker-compose.yml` y `docker-compose.override.yml`.
+- Si quieres ser explicito: `docker compose -f docker-compose.yml -f docker-compose.override.yml up -d`.
+- No uses solo `docker-compose.override.yml` porque esta pensado como parche del archivo base.
+
 En desarrollo, los cambios en `src/` y `app.py` se aplican sin reconstruir imagen.
 
 Debes reconstruir (`--build`) solo cuando cambies:
@@ -258,6 +264,35 @@ Debes reconstruir (`--build`) solo cuando cambies:
 - `Dockerfile`
 - Dependencias del sistema instaladas por `apt`
 - Cualquier fichero que no este montado como volumen en el override
+
+### Produccion (comandos explicitos)
+En produccion no deberias cargar `docker-compose.override.yml` (evita bind mounts y `--reload`).
+
+Despliegue inicial en servidor:
+```bash
+# 1) Configurar variables
+cp .env.example .env
+# editar .env (al menos POSTGRES_PASSWORD)
+
+# 2) Levantar solo el archivo base
+docker compose -f docker-compose.yml up -d --build
+```
+Despliegue de actualizaciones (sin cambios en dependencias):
+```bash
+# 3) Recrear contenedores con la nueva imagen (sin build local)
+docker compose -f docker-compose.yml up -d --no-build --remove-orphans
+```
+
+Verificacion post-despliegue:
+```bash
+docker compose -f docker-compose.yml ps
+docker compose -f docker-compose.yml logs -f api
+docker compose -f docker-compose.yml logs -f streamlit
+```
+
+Resumen rapido:
+- Desarrollo: `docker compose up -d` (carga override automaticamente).
+- Produccion: `docker compose -f docker-compose.yml up -d ...` (solo archivo base).
 
 Servicios expuestos:
 - API FastAPI: `http://localhost:8000`
@@ -318,6 +353,24 @@ python trainer.py --enable-tuning --tuning-method randomized --tuning-iter 20
 python trainer.py --enable-tuning --tuning-method grid --tuning-cv 3
 python trainer.py --disable-mlflow
 ```
+
+### Que hace quick mode
+`quick mode` acelera el entrenamiento reduciendo la complejidad de algunos modelos para iterar mas rapido durante desarrollo.
+
+Cambios que aplica:
+- Random Forest: `n_estimators` de 200 a 50.
+- XGBoost (si esta instalado): `n_estimators` de 200 a 40.
+- CatBoost (si esta instalado): `iterations` de 100 a 50.
+- Red neuronal: `epochs` de 50 a 10.
+
+Quick mode no:
+- Reduce el numero de filas del dataset.
+- Cambia el split train/test.
+- Desactiva tuning automaticamente.
+
+Recomendacion:
+- Usa `--quick` para pruebas rapidas en desarrollo.
+- Ejecuta sin `--quick` para metricas finales y comparativas de rendimiento.
 
 ## MLflow
 MLflow corre como servicio independiente con backend PostgreSQL y almacenamiento de artefactos en el volumen `mlruns`.

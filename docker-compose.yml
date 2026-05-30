@@ -18,6 +18,7 @@ services:
     environment:
       PYTHONUNBUFFERED: "1"
       MLFLOW_TRACKING_URI: "http://mlflow:5000"
+      CUDA_VISIBLE_DEVICES: "-1"
     volumes:
       - models:/app/models
       - outputs:/app/outputs
@@ -57,6 +58,7 @@ services:
       PYTHONUNBUFFERED: "1"
       API_URL: "http://api:8000"
       MLFLOW_TRACKING_URI: "http://mlflow:5000"
+      CUDA_VISIBLE_DEVICES: "-1"
     volumes:
       - models:/app/models
       - outputs:/app/outputs
@@ -90,6 +92,7 @@ services:
     environment:
       PYTHONUNBUFFERED: "1"
       MLFLOW_TRACKING_URI: "http://mlflow:5000"
+      CUDA_VISIBLE_DEVICES: "-1"
     volumes:
       - models:/app/models
       - outputs:/app/outputs
