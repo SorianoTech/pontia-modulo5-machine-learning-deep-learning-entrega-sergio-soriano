@@ -1,5 +1,16 @@
+x-app-build: &app-build
+  context: .
+  dockerfile: Dockerfile
+  target: dev
+
+x-mlflow-build: &mlflow-build
+  context: .
+  dockerfile: Dockerfile
+  target: mlflow-runtime
+
 services:
   api:
+    build: *app-build
     command:
       - uvicorn
       - src.api:app
@@ -11,6 +22,7 @@ services:
       - ${UVICORN_LOG_LEVEL:-info}
       - --reload
     volumes:
+      - ./data:/app/data:ro
       - ./src:/app/src
       - ./trainer.py:/app/trainer.py:ro
       - models:/app/models
@@ -18,6 +30,7 @@ services:
       - mlruns:/app/mlruns
 
   streamlit:
+    build: *app-build
     command:
       - streamlit
       - run
@@ -36,10 +49,14 @@ services:
       - mlruns:/app/mlruns
 
   trainer:
+    build: *app-build
     volumes:
+      - ./data:/app/data:ro
       - ./src:/app/src
       - ./trainer.py:/app/trainer.py
-      - ./data:/app/data:ro
       - models:/app/models
       - outputs:/app/outputs
       - mlruns:/app/mlruns
+
+  mlflow:
+    build: *mlflow-build

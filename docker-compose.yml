@@ -1,9 +1,6 @@
 services:
   api:
-    image: ${APP_IMAGE:-hotel-cancellation-ml:latest}
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ${APP_IMAGE:-hotel-cancellation-app:latest}
     command:
       - uvicorn
       - src.api:app
@@ -20,6 +17,7 @@ services:
       MLFLOW_TRACKING_URI: "http://mlflow:5000"
       CUDA_VISIBLE_DEVICES: "-1"
     volumes:
+      - ./data:/app/data:ro
       - models:/app/models
       - outputs:/app/outputs
       - mlruns:/app/mlruns
@@ -41,10 +39,7 @@ services:
         condition: service_started
 
   streamlit:
-    image: ${APP_IMAGE:-hotel-cancellation-ml:latest}
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ${APP_IMAGE:-hotel-cancellation-app:latest}
     command:
       - streamlit
       - run
@@ -84,10 +79,7 @@ services:
         condition: service_started
 
   trainer:
-    image: ${APP_IMAGE:-hotel-cancellation-ml:latest}
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ${APP_IMAGE:-hotel-cancellation-app:latest}
     command: ["python", "trainer.py"]
     environment:
       PYTHONUNBUFFERED: "1"
@@ -105,10 +97,7 @@ services:
         condition: service_started
 
   mlflow:
-    image: ${APP_IMAGE:-hotel-cancellation-ml:latest}
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ${MLFLOW_IMAGE:-hotel-cancellation-mlflow:latest}
     command:
       - mlflow
       - server

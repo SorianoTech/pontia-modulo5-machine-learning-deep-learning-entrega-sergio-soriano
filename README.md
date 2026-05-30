@@ -83,14 +83,17 @@ Entrenamiento completo sobre el dataset (119.390 reservas, split 80/20, semilla 
 - Tracking de experimentos con MLflow (runs, parametros, metricas, duraciones por etapa y artefactos) con backend PostgreSQL
 - Servidor MLflow UI accesible en `http://localhost:5000`
 - Persistencia local de runs desde FastAPI en SQLite: `outputs/runs.db`
-- Tuning de hiperparametros del mejor modelo base (Random Forest) con GridSearchCV o RandomizedSearchCV
+- Tuning de hiperparametros del mejor modelo base con GridSearchCV o RandomizedSearchCV para cualquier familia soportada
+- Calibracion de probabilidades y seleccion automatica del threshold de despliegue
+- Artefactos de monitorizacion y contrato de serving en `outputs/serving_contract.json` y `outputs/monitoring_report.json`
+- Importancia por permutacion del modelo desplegado en `outputs/permutation_importance_<modelo>.{png,csv}`
 
 ## Tuning de hiperparametros
 
 ### Que es el tuning
 El tuning (o ajuste de hiperparametros) es el proceso de buscar la combinacion optima de configuraciones de un modelo que maximiza su rendimiento. A diferencia de los parametros del modelo (que se aprenden durante el entrenamiento), los hiperparametros se fijan antes de entrenar y controlan el comportamiento del algoritmo. Por ejemplo, en Random Forest: el numero de arboles (`n_estimators`), la profundidad maxima (`max_depth`) o el numero de features a considerar en cada split (`max_features`).
 
-En este proyecto el tuning se aplica sobre el modelo con mejor AUC-ROC base y busca mejorar su rendimiento sin cambiar el codigo de entrenamiento principal.
+En este proyecto el tuning se aplica sobre el modelo con mejor AUC-ROC base y busca mejorar su rendimiento sin cambiar el codigo de entrenamiento principal. El espacio de busqueda cambia segun la familia ganadora (Regresion Logistica, Arbol de Decision, Random Forest, Gradient Boosting/XGBoost, CatBoost o red neuronal).
 
 ### GridSearchCV
 Prueba **todas las combinaciones posibles** del espacio de busqueda definido. Es exhaustivo: si defines 3 valores para `n_estimators`, 3 para `max_depth` y 2 para `max_features`, evaluara 3 × 3 × 2 = 18 combinaciones, cada una con k-fold cross-validation.
@@ -125,9 +128,12 @@ python trainer.py --enable-tuning --tuning-method randomized --tuning-iter 15 --
 
 # Grid (busqueda exhaustiva, 3-fold CV)
 python trainer.py --enable-tuning --tuning-method grid --tuning-cv 3
+
+# Split cronologico si hay columnas temporales disponibles
+python trainer.py --split-strategy chronological
 ```
 
-El modelo tuneado se registra con el sufijo `_tuned` y compite con el resto en la tabla de metricas. Si supera al modelo base, pasa a ser el `best_model.pkl`.
+El modelo tuneado se registra con el sufijo `_tuned` y compite con el resto en la tabla de metricas. Si supera al modelo base, pasa a ser el `best_model.pkl`. El artefacto final guarda tambien el threshold optimizado, el contrato de entrada y los metadatos de monitorizacion.
 
 ## Justificacion de metricas
 **Metrica principal: AUC-ROC**
@@ -152,6 +158,10 @@ entregable/
 ├── trainer.py
 ├── Dockerfile
 ├── docker-compose.yml
+├── docker-compose.override.yml
+├── requirements-app.txt
+├── requirements-dev.txt
+├── requirements-mlflow.txt
 ├── requirements.txt
 ├── data/raw/dataset_practica_final.csv
 ├── notebooks/
@@ -178,19 +188,22 @@ entregable/
 dataset_practica_final.csv
         │
         ▼
-  data_loader.py          → carga, limpieza, split 80/20, preprocesador
+  data_loader.py          → carga, limpieza, split configurable (auto/chronological/stratified), preprocesador
         │
         ▼
   model_trainer.py        → entrena 5 modelos en pipeline (preprocesador + clasificador)
         │
         ▼
-  evaluator.py            → calcula métricas, genera gráficos ROC / CM / feature importance
+  evaluator.py            → calcula métricas, genera gráficos ROC / CM / permutation importance
         │
         ▼
   tuning.py (opcional)    → GridSearchCV / RandomizedSearchCV sobre el mejor modelo
         │
         ▼
-  best_model.pkl          → modelo ganador serializado con joblib
+  best_model.pkl          → modelo ganador serializado con joblib + threshold + contrato de serving
+        │
+        ▼
+  monitoring.py           → genera contrato de serving y reporte de drift / score monitoring
         │
         ▼
   mlflow_tracker.py       → registra params, métricas y artefactos en MLflow
@@ -217,8 +230,9 @@ Se incluye una configuracion lista para levantar todos los servicios como conten
 | `trainer` | Job de entrenamiento batch (perfil `jobs`) | — |
 
 ### Archivos incluidos
-- `Dockerfile`: imagen Python 3.11 multi-stage compartida por todos los servicios de la aplicacion.
-- `docker-compose.yml`: orquestacion completa con dependencias y healthchecks.
+- `Dockerfile`: imagen Python 3.11 multi-stage con targets separados para `app-runtime`, `dev` y `mlflow-runtime`.
+- `docker-compose.yml`: orquestacion orientada a produccion usando imagenes ya construidas.
+- `docker-compose.override.yml`: build local y bind mounts para desarrollo.
 - `.env.example`: plantilla de variables de entorno.
 
 ### Puesta en marcha
@@ -238,6 +252,7 @@ docker compose up --build
 Este repositorio incluye `docker-compose.override.yml` para desarrollo local. Docker Compose lo carga automaticamente junto a `docker-compose.yml`.
 
 Que hace este override:
+- Construye la imagen `dev` desde el `Dockerfile`.
 - Monta `./src` dentro del contenedor (`/app/src`) para reflejar cambios al guardar.
 - Activa `uvicorn --reload` en la API.
 - Monta `app.py` y activa `--server.runOnSave=true` en Streamlit.
@@ -260,13 +275,19 @@ Nota sobre el override:
 En desarrollo, los cambios en `src/` y `app.py` se aplican sin reconstruir imagen.
 
 Debes reconstruir (`--build`) solo cuando cambies:
-- `requirements.txt`
+- `requirements*.txt`
 - `Dockerfile`
 - Dependencias del sistema instaladas por `apt`
 - Cualquier fichero que no este montado como volumen en el override
 
 ### Produccion (comandos explicitos)
 En produccion no deberias cargar `docker-compose.override.yml` (evita bind mounts y `--reload`).
+
+El archivo base queda orientado a imagenes ya construidas. Puedes generarlas localmente o en CI:
+```bash
+docker build --target app-runtime -t hotel-cancellation-app:latest .
+docker build --target mlflow-runtime -t hotel-cancellation-mlflow:latest .
+```
 
 Despliegue inicial en servidor:
 ```bash
@@ -275,12 +296,13 @@ cp .env.example .env
 # editar .env (al menos POSTGRES_PASSWORD)
 
 # 2) Levantar solo el archivo base
-docker compose -f docker-compose.yml up -d --build
+docker compose -f docker-compose.yml up -d
 ```
-Despliegue de actualizaciones (sin cambios en dependencias):
+
+Despliegue de actualizaciones:
 ```bash
-# 3) Recrear contenedores con la nueva imagen (sin build local)
-docker compose -f docker-compose.yml up -d --no-build --remove-orphans
+docker compose -f docker-compose.yml pull
+docker compose -f docker-compose.yml up -d --remove-orphans
 ```
 
 Verificacion post-despliegue:
@@ -291,8 +313,8 @@ docker compose -f docker-compose.yml logs -f streamlit
 ```
 
 Resumen rapido:
-- Desarrollo: `docker compose up -d` (carga override automaticamente).
-- Produccion: `docker compose -f docker-compose.yml up -d ...` (solo archivo base).
+- Desarrollo: `docker compose up -d --build` la primera vez, luego `docker compose up -d`.
+- Produccion: construir/publicar imagenes y usar `docker compose -f docker-compose.yml up -d`.
 
 Servicios expuestos:
 - API FastAPI: `http://localhost:8000`
@@ -326,7 +348,8 @@ Los artefactos persistentes se guardan en volumenes Docker:
 ### Variables de entorno (`.env`)
 | Variable | Descripcion | Default |
 |---|---|---|
-| `APP_IMAGE` | Tag de la imagen Docker | `hotel-cancellation-ml:latest` |
+| `APP_IMAGE` | Tag de la imagen Docker de API/Streamlit/trainer | `hotel-cancellation-app:latest` |
+| `MLFLOW_IMAGE` | Tag de la imagen Docker dedicada a MLflow | `hotel-cancellation-mlflow:latest` |
 | `API_PORT` | Puerto host para la API | `8000` |
 | `STREAMLIT_PORT` | Puerto host para Streamlit | `8501` |
 | `MLFLOW_PORT` | Puerto host para MLflow UI | `5000` |
@@ -338,7 +361,7 @@ Los artefactos persistentes se guardan en volumenes Docker:
 
 ### Notas
 - La primera vez, `predict` y la vista de evaluacion no tendran artefactos hasta ejecutar un entrenamiento.
-- El dataset se monta como volumen de solo lectura desde `./data` — no es necesario reconstruir la imagen para cambiar los datos.
+- El dataset se monta como volumen de solo lectura desde `./data` en lugar de copiarse dentro de la imagen.
 - Cambia `POSTGRES_PASSWORD` en `.env` antes de desplegar en produccion.
 
 ## Ejecucion del pipeline
