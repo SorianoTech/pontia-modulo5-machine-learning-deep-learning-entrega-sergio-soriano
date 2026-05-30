@@ -13,6 +13,7 @@ class TrainRequest(BaseModel):
     tuning_cv: int = Field(default=3, ge=2)
     tuning_iter: int = Field(default=15, ge=1)
     enable_mlflow: bool = Field(default=True)
+    split_strategy: str = Field(default="auto")
 
 
 class PredictRequest(BaseModel):

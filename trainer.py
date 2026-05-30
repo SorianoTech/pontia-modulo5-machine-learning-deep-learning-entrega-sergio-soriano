@@ -11,7 +11,7 @@ import pandas as pd
 from src import config
 from src.data_loader import build_data_bundle
 from src.evaluator import Evaluator
-from src.mlflow_tracker import MLflowTracker
+from src.monitoring import build_monitoring_report, build_serving_contract, write_json_artifact
 from src.model_trainer import ModelTrainer
 from src.tuning import tune_pipeline
 
@@ -38,9 +38,14 @@ def run_pipeline(
     tuning_cv: int = config.DEFAULT_TUNING_CV,
     tuning_iter: int = config.DEFAULT_TUNING_ITER,
     enable_mlflow: bool = True,
+    split_strategy: str = config.DEFAULT_SPLIT_STRATEGY,
 ):
     mlflow_run_id = None
-    tracker = MLflowTracker() if enable_mlflow else None
+    tracker = None
+    if enable_mlflow:
+        from src.mlflow_tracker import MLflowTracker
+
+        tracker = MLflowTracker()
     run_name = f"pipeline-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
     run_context = (
         tracker.start_run(
@@ -57,7 +62,7 @@ def run_pipeline(
             mlflow_run_id = run.info.run_id
 
         data_stage_started_at = perf_counter()
-        bundle = build_data_bundle(data_path)
+        bundle = build_data_bundle(data_path, split_strategy=split_strategy)
         data_loading_seconds = _elapsed_seconds(data_stage_started_at)
 
         trainer = ModelTrainer(bundle, quick_mode=quick_mode, skip_neural_net=skip_neural_net)
@@ -70,7 +75,6 @@ def run_pipeline(
         metrics_df = evaluator.evaluate()
         roc_path = evaluator.plot_roc_curves()
         confusion_paths = evaluator.plot_confusion_matrices()
-        fi_path = evaluator.plot_feature_importance("random_forest")
         evaluation_seconds = _elapsed_seconds(evaluation_stage_started_at)
 
         best_row = metrics_df.iloc[0]
@@ -80,10 +84,11 @@ def run_pipeline(
         tuning_result = None
         tuning_seconds = 0.0
         tuned_model_name = f"{best_name}_tuned"
-        if enable_tuning and best_name == "random_forest":
+        if enable_tuning:
             tuning_stage_started_at = perf_counter()
             tuned_model, tuning_result = tune_pipeline(
                 pipeline=best_model,
+                model_name=best_name,
                 X_train=bundle.X_train,
                 y_train=bundle.y_train,
                 method=tuning_method,
@@ -111,8 +116,58 @@ def run_pipeline(
             best_name = str(best_row["model"])
             best_model = trained.models[best_name]
 
+        deployment_stage_started_at = perf_counter()
+        deployed_model, deployment_info = trainer.prepare_model_for_deployment(best_model)
+        deployment_threshold = float(deployment_info["prediction_threshold"])
+        trained.models[best_name] = deployed_model
+
+        deployed_eval = Evaluator(
+            bundle.y_test,
+            bundle.X_test,
+            {best_name: deployed_model},
+            threshold_overrides={best_name: deployment_threshold},
+        ).evaluate()
+        deployed_evaluator = Evaluator(
+            bundle.y_test,
+            bundle.X_test,
+            {best_name: deployed_model},
+            threshold_overrides={best_name: deployment_threshold},
+        )
+        explainability_paths = deployed_evaluator.plot_permutation_importance(best_name)
+        deployment_seconds = _elapsed_seconds(deployment_stage_started_at)
+        deployment_info["deployment_metrics"] = _to_float_metrics(deployed_eval.iloc[0].to_dict())
+        deployment_info["split_strategy"] = bundle.split_metadata["split_strategy"]
+
+        feature_contract = build_serving_contract(bundle.X_train)
+        monitoring_report = build_monitoring_report(
+            bundle.X_train,
+            bundle.X_test,
+            bundle.y_train,
+            bundle.y_test,
+            deployed_model,
+            bundle.split_metadata,
+        )
+        contract_path = write_json_artifact(feature_contract, config.SERVING_CONTRACT_PATH)
+        monitoring_path = write_json_artifact(monitoring_report, config.MONITORING_REPORT_PATH)
+        deployment_info["feature_contract"] = feature_contract
+        deployment_info["monitoring_report"] = monitoring_report
+        deployment_info["explainability"] = {
+            "permutation_importance_plot": str(explainability_paths[0]) if explainability_paths else None,
+            "permutation_importance_csv": str(explainability_paths[1]) if explainability_paths else None,
+        }
+
+        metrics_df = metrics_df[metrics_df["model"] != best_name].reset_index(drop=True)
+        metrics_df["selected_for_deployment"] = False
+        deployed_eval["selected_for_deployment"] = True
+        metrics_df = (
+            pd.concat([metrics_df, deployed_eval], ignore_index=True)
+            .sort_values(by=config.PRIMARY_METRIC, ascending=False)
+            .reset_index(drop=True)
+        )
+        metrics_df.to_csv(config.METRICS_PATH, index=False)
+
         persistence_stage_started_at = perf_counter()
-        best_model_path = trainer.save_best_model(best_model, best_name)
+        best_model_path = trainer.save_best_model(deployed_model, best_name, deployment_info)
         persistence_seconds = _elapsed_seconds(persistence_stage_started_at)
 
         if tracker:
@@ -131,6 +186,11 @@ def run_pipeline(
                     "feature_count": len(bundle.feature_names),
                     "tracked_model_count": len(metrics_df),
                     "data_path": str(Path(data_path).resolve()) if data_path else str(config.DATA_PATH),
+                    "prediction_threshold": deployment_threshold,
+                    "threshold_selection_metric": deployment_info["threshold_selection_metric"],
+                    "calibration_method": deployment_info["calibration_method"],
+                    "split_strategy": bundle.split_metadata["split_strategy"],
+                    "validation_split_strategy": deployment_info["validation_split_strategy"],
                 }
             )
 
@@ -149,14 +209,32 @@ def run_pipeline(
                     }
                 )
 
+            tracker.log_metrics(
+                {
+                    f"deployment_validation_{k}": float(v)
+                    for k, v in deployment_info["validation_metrics"].items()
+                    if k != "decision_threshold"
+                }
+            )
+            tracker.log_metrics(
+                {
+                    f"deployment_test_{k}": float(v)
+                    for k, v in deployment_info["deployment_metrics"].items()
+                    if k != "decision_threshold"
+                }
+            )
+
             tracker.log_artifact(config.METRICS_PATH)
             tracker.log_artifact(roc_path)
             for confusion_path in confusion_paths:
                 tracker.log_artifact(confusion_path)
-            if fi_path is not None:
-                tracker.log_artifact(fi_path)
+            tracker.log_artifact(contract_path)
+            tracker.log_artifact(monitoring_path)
+            if explainability_paths:
+                tracker.log_artifact(explainability_paths[0])
+                tracker.log_artifact(explainability_paths[1])
 
-            tracker.log_model(best_model, input_example=bundle.X_train.head(5), artifact_path="best_model")
+            tracker.log_model(deployed_model, input_example=bundle.X_train.head(5), artifact_path="best_model")
             logging_seconds = _elapsed_seconds(logging_stage_started_at)
             tracker.log_metrics(
                 {
@@ -164,6 +242,7 @@ def run_pipeline(
                     "training_seconds": training_seconds,
                     "evaluation_seconds": evaluation_seconds,
                     "tuning_seconds": tuning_seconds,
+                    "deployment_seconds": deployment_seconds,
                     "persistence_seconds": persistence_seconds,
                     "mlflow_logging_seconds": logging_seconds,
                     "total_pipeline_seconds": _elapsed_seconds(pipeline_started_at),
@@ -175,8 +254,16 @@ def run_pipeline(
         "best_model_path": str(best_model_path),
         "metrics_path": str(config.METRICS_PATH),
         "metrics": metrics_df,
+        "best_metrics": deployment_info["deployment_metrics"],
         "tuning": tuning_result,
         "mlflow_run_id": mlflow_run_id,
+        "prediction_threshold": deployment_threshold,
+        "threshold_selection_metric": deployment_info["threshold_selection_metric"],
+        "calibration_method": deployment_info["calibration_method"],
+        "resolved_split_strategy": bundle.split_metadata["split_strategy"],
+        "serving_contract_path": str(contract_path),
+        "monitoring_report_path": str(monitoring_path),
+        "explainability": deployment_info["explainability"],
     }
 
 
@@ -201,6 +288,13 @@ def parse_args() -> argparse.Namespace:
         help="Iterations for RandomizedSearchCV",
     )
     parser.add_argument("--disable-mlflow", action="store_true", help="Disable MLflow tracking for this run")
+    parser.add_argument(
+        "--split-strategy",
+        type=str,
+        default=config.DEFAULT_SPLIT_STRATEGY,
+        choices=["auto", "chronological", "stratified"],
+        help="Train/test split strategy",
+    )
     return parser.parse_args()
 
 
@@ -215,6 +309,7 @@ def main() -> None:
         tuning_cv=args.tuning_cv,
         tuning_iter=args.tuning_iter,
         enable_mlflow=not args.disable_mlflow,
+        split_strategy=args.split_strategy,
     )
 
     print("Training pipeline completed")
@@ -222,6 +317,8 @@ def main() -> None:
     print(f"Best model artifact: {result['best_model_path']}")
     print(f"Metrics saved at: {result['metrics_path']}")
     print(f"MLflow run id: {result['mlflow_run_id']}")
+    print(f"Split strategy: {result['resolved_split_strategy']}")
+    print(f"Prediction threshold: {result['prediction_threshold']}")
     if result["tuning"]:
         print(f"Tuning summary: {result['tuning']}")
     print(result["metrics"].to_string(index=False))

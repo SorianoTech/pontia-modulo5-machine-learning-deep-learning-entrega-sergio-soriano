@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List
+from typing import Any, List
 
 import pandas as pd
 from sklearn.compose import ColumnTransformer
@@ -21,6 +21,7 @@ class DataBundle:
     y_test: pd.Series
     preprocessor: ColumnTransformer
     feature_names: List[str]
+    split_metadata: dict[str, Any]
 
 
 def load_raw_data(path: str | None = None) -> pd.DataFrame:
@@ -90,22 +91,99 @@ def build_preprocessor(X: pd.DataFrame) -> ColumnTransformer:
         ]
     )
 
-# La función split_data utiliza train_test_split de scikit-learn para dividir el conjunto de datos en entrenamiento y prueba. Se especifica un tamaño de prueba (test_size) y una semilla aleatoria (random_state) para garantizar la reproducibilidad.
-#  Además, se utiliza stratify=y para asegurar que la proporción de clases en la variable objetivo se mantenga igual en ambos conjuntos, lo que es especialmente importante en problemas de clasificación con clases desbalanceadas.
-def split_data(X: pd.DataFrame, y: pd.Series) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series, pd.Series]:
-    return train_test_split(
+
+def _booking_period_index(X: pd.DataFrame) -> pd.Series:
+    required_columns = config.CHRONOLOGICAL_SPLIT_COLUMNS
+    if any(column not in X.columns for column in required_columns):
+        return pd.Series(pd.NaT, index=X.index, dtype="datetime64[ns]")
+
+    month_numbers = pd.to_datetime(X["arrival_date_month"], format="%B", errors="coerce").dt.month
+    return pd.to_datetime(
+        {
+            "year": X["arrival_date_year"],
+            "month": month_numbers,
+            "day": 1,
+        },
+        errors="coerce",
+    )
+
+
+def resolve_split_strategy(
+    X: pd.DataFrame,
+    split_strategy: str = config.DEFAULT_SPLIT_STRATEGY,
+) -> str:
+    requested = split_strategy.lower().strip()
+    if requested not in {"auto", "stratified", "chronological"}:
+        raise ValueError("split_strategy debe ser 'auto', 'stratified' o 'chronological'")
+
+    has_chronology = _booking_period_index(X).dropna().nunique() >= 2
+    if requested == "auto":
+        return "chronological" if has_chronology else "stratified"
+    if requested == "chronological" and not has_chronology:
+        return "stratified"
+    return requested
+
+
+def split_data(
+    X: pd.DataFrame,
+    y: pd.Series,
+    test_size: float = config.TEST_SIZE,
+    random_state: int = config.RANDOM_STATE,
+    split_strategy: str = config.DEFAULT_SPLIT_STRATEGY,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series, pd.Series, dict[str, Any]]:
+    resolved_strategy = resolve_split_strategy(X, split_strategy)
+
+    if resolved_strategy == "chronological":
+        booking_period = _booking_period_index(X)
+        ordered_index = booking_period.sort_values(kind="mergesort").index
+        split_position = min(max(int(len(ordered_index) * (1 - test_size)), 1), len(ordered_index) - 1)
+        train_index = ordered_index[:split_position]
+        test_index = ordered_index[split_position:]
+
+        X_train = X.loc[train_index].copy()
+        X_test = X.loc[test_index].copy()
+        y_train = y.loc[train_index].copy()
+        y_test = y.loc[test_index].copy()
+
+        metadata = {
+            "split_strategy": resolved_strategy,
+            "train_period_start": str(booking_period.loc[train_index].min().date()),
+            "train_period_end": str(booking_period.loc[train_index].max().date()),
+            "test_period_start": str(booking_period.loc[test_index].min().date()),
+            "test_period_end": str(booking_period.loc[test_index].max().date()),
+        }
+        return X_train, X_test, y_train, y_test, metadata
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X,
+        y,
+        test_size=test_size,
+        random_state=random_state,
+        stratify=y,
+    )
+    metadata = {
+        "split_strategy": resolved_strategy,
+        "train_period_start": None,
+        "train_period_end": None,
+        "test_period_start": None,
+        "test_period_end": None,
+    }
+    return X_train, X_test, y_train, y_test, metadata
+
+# La función build_data_bundle es la función principal que orquesta todo el proceso de carga y preparación de datos. Primero, carga los datos crudos utilizando load_raw_data, luego prepara las características y la variable objetivo con prepare_features, divide los datos en conjuntos de entrenamiento y prueba con split_data, y finalmente construye el preprocesador con build_preprocessor.
+def build_data_bundle(
+    path: str | None = None,
+    split_strategy: str = config.DEFAULT_SPLIT_STRATEGY,
+) -> DataBundle:
+    df = load_raw_data(path)
+    X, y = prepare_features(df)
+    X_train, X_test, y_train, y_test, split_metadata = split_data(
         X,
         y,
         test_size=config.TEST_SIZE,
         random_state=config.RANDOM_STATE,
-        stratify=y,
+        split_strategy=split_strategy,
     )
-
-# La función build_data_bundle es la función principal que orquesta todo el proceso de carga y preparación de datos. Primero, carga los datos crudos utilizando load_raw_data, luego prepara las características y la variable objetivo con prepare_features, divide los datos en conjuntos de entrenamiento y prueba con split_data, y finalmente construye el preprocesador con build_preprocessor.
-def build_data_bundle(path: str | None = None) -> DataBundle:
-    df = load_raw_data(path)
-    X, y = prepare_features(df)
-    X_train, X_test, y_train, y_test = split_data(X, y)
     preprocessor = build_preprocessor(X_train)
 
     return DataBundle(
@@ -115,4 +193,5 @@ def build_data_bundle(path: str | None = None) -> DataBundle:
         y_test=y_test,
         preprocessor=preprocessor,
         feature_names=X_train.columns.tolist(),
+        split_metadata=split_metadata,
     )

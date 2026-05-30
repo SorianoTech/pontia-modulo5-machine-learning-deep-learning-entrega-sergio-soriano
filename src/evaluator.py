@@ -8,42 +8,47 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from sklearn.inspection import permutation_importance
 from sklearn.metrics import (
     ConfusionMatrixDisplay,
-    accuracy_score,
     confusion_matrix,
-    f1_score,
-    precision_score,
-    recall_score,
     roc_auc_score,
     roc_curve,
 )
 from sklearn.pipeline import Pipeline
 
 from src import config
-from src.model_trainer import ensure_probabilities
+from src.model_trainer import (
+    compute_binary_classification_metrics,
+    ensure_probabilities,
+    predict_with_threshold,
+)
 
 
 class Evaluator:
-    def __init__(self, y_true: pd.Series, X_test: pd.DataFrame, models: Dict[str, object]) -> None:
+    def __init__(
+        self,
+        y_true: pd.Series,
+        X_test: pd.DataFrame,
+        models: Dict[str, object],
+        threshold_overrides: Dict[str, float] | None = None,
+    ) -> None:
         self.y_true = y_true
         self.X_test = X_test
         self.models = models
+        self.threshold_overrides = threshold_overrides or {}
 
     def evaluate(self) -> pd.DataFrame:
         rows = []
         for name, model in self.models.items():
-            y_pred = model.predict(self.X_test)
             y_prob = ensure_probabilities(model, self.X_test)
+            threshold = self.threshold_overrides.get(name, config.DEFAULT_PREDICTION_THRESHOLD)
+            metrics = compute_binary_classification_metrics(self.y_true, y_prob, threshold)
 
             rows.append(
                 {
                     "model": name,
-                    "accuracy": accuracy_score(self.y_true, y_pred),
-                    "precision": precision_score(self.y_true, y_pred, zero_division=0),
-                    "recall": recall_score(self.y_true, y_pred, zero_division=0),
-                    "f1": f1_score(self.y_true, y_pred, zero_division=0),
-                    "roc_auc": roc_auc_score(self.y_true, y_prob),
+                    **metrics,
                 }
             )
 
@@ -74,7 +79,9 @@ class Evaluator:
     def plot_confusion_matrices(self) -> list[Path]:
         outputs = []
         for name, model in self.models.items():
-            y_pred = model.predict(self.X_test)
+            y_prob = ensure_probabilities(model, self.X_test)
+            threshold = self.threshold_overrides.get(name, config.DEFAULT_PREDICTION_THRESHOLD)
+            y_pred = predict_with_threshold(y_prob, threshold)
             cm = confusion_matrix(self.y_true, y_pred)
             fig, ax = plt.subplots(figsize=(5, 4))
             ConfusionMatrixDisplay(confusion_matrix=cm).plot(ax=ax, cmap="Blues", colorbar=False)
@@ -116,3 +123,48 @@ class Evaluator:
         fig.savefig(path, dpi=160)
         plt.close(fig)
         return path
+
+    def plot_permutation_importance(self, model_name: str) -> tuple[Path, Path] | None:
+        if model_name not in self.models:
+            return None
+
+        result = permutation_importance(
+            self.models[model_name],
+            self.X_test,
+            self.y_true,
+            n_repeats=config.PERMUTATION_IMPORTANCE_REPEATS,
+            random_state=config.RANDOM_STATE,
+            scoring=config.PRIMARY_METRIC,
+            n_jobs=1,
+        )
+
+        importance_df = (
+            pd.DataFrame(
+                {
+                    "feature": self.X_test.columns,
+                    "importance_mean": result.importances_mean,
+                    "importance_std": result.importances_std,
+                }
+            )
+            .sort_values(by="importance_mean", ascending=False)
+            .reset_index(drop=True)
+        )
+
+        csv_path = config.OUTPUTS_DIR / f"permutation_importance_{model_name}.csv"
+        importance_df.to_csv(csv_path, index=False)
+
+        top_df = (
+            importance_df.head(config.EXPLAINABILITY_TOP_N)
+            .sort_values(by="importance_mean", ascending=True)
+            .reset_index(drop=True)
+        )
+        fig, ax = plt.subplots(figsize=(10, 7))
+        ax.barh(top_df["feature"], top_df["importance_mean"], xerr=top_df["importance_std"])
+        ax.set_title(f"Permutation Importance - {model_name}")
+        ax.set_xlabel("Importance mean")
+        fig.tight_layout()
+
+        png_path = config.OUTPUTS_DIR / f"permutation_importance_{model_name}.png"
+        fig.savefig(png_path, dpi=160)
+        plt.close(fig)
+        return png_path, csv_path

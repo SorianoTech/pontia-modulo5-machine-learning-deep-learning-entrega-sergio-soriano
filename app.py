@@ -50,6 +50,7 @@ if mode == "Entrenar":
     quick_mode = st.checkbox("Quick mode", value=True)
     skip_neural_net = st.checkbox("Saltar red neuronal", value=False)
     enable_tuning = st.checkbox("Activar tuning (Grid/Randomized)", value=False)
+    split_strategy = st.selectbox("Estrategia de split", options=["auto", "chronological", "stratified"], index=0)
     tuning_method = st.selectbox("Método de tuning", options=["randomized", "grid"], index=0)
     tuning_cv = st.slider("Folds CV", min_value=2, max_value=5, value=3)
     tuning_iter = st.slider("Iteraciones Randomized", min_value=5, max_value=40, value=15)
@@ -68,6 +69,7 @@ if mode == "Entrenar":
                         "tuning_cv": tuning_cv,
                         "tuning_iter": tuning_iter,
                         "enable_mlflow": enable_mlflow,
+                        "split_strategy": split_strategy,
                     },
                     timeout=600.0,
                 )
@@ -83,8 +85,16 @@ if mode == "Entrenar":
         st.success(f"Mejor modelo: {result['best_model']}")
         if result.get("mlflow_run_id"):
             st.info(f"MLflow run id: {result['mlflow_run_id']}")
+        st.info(
+            "Threshold de despliegue: "
+            f"{result['prediction_threshold']:.4f} "
+            f"(optimizado por {result['threshold_selection_metric']})"
+        )
+        st.info(f"Split de entrenamiento usado: {result['resolved_split_strategy']}")
         if result.get("tuning"):
             st.json({"tuning": result["tuning"]})
+        if result.get("explainability"):
+            st.json({"explainability": result["explainability"]})
         st.dataframe(pd.DataFrame(result["metrics"]), use_container_width=True)
 
 elif mode == "Evaluar":
@@ -100,9 +110,14 @@ elif mode == "Evaluar":
     if roc_path.exists():
         st.image(str(roc_path), caption="Curvas ROC")
 
-    fi_path = config.OUTPUTS_DIR / "feature_importance_random_forest.png"
-    if fi_path.exists():
-        st.image(str(fi_path), caption="Importancia de variables (Random Forest)")
+    explainability_candidates = sorted(config.OUTPUTS_DIR.glob("permutation_importance_*.png"))
+    if explainability_candidates:
+        st.image(str(explainability_candidates[-1]), caption="Importancia por permutación del modelo desplegado")
+
+    if config.MONITORING_REPORT_PATH.exists():
+        st.divider()
+        st.subheader("Monitoring report")
+        st.json(json.loads(config.MONITORING_REPORT_PATH.read_text(encoding="utf-8")))
 
     st.divider()
     st.subheader("Histórico de runs")
@@ -132,7 +147,12 @@ elif mode == "Predecir":
         try:
             payload = _parse_payload(input_text)
             result = predict_from_payload(payload)
-            st.success(f"Predicción: {result['prediction']} | Prob cancelación: {result['probability_canceled']}")
+            st.success(
+                "Predicción: "
+                f"{result['prediction']} | "
+                f"Prob cancelación: {result['probability_canceled']} | "
+                f"Threshold: {result['prediction_threshold']}"
+            )
             st.json(result)
         except FileNotFoundError:
             st.error("No existe best_model.pkl. Entrena primero un modelo.")
