@@ -1,0 +1,45 @@
+services:
+  api:
+    command:
+      - uvicorn
+      - src.api:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --log-level
+      - ${UVICORN_LOG_LEVEL:-info}
+      - --reload
+    volumes:
+      - ./src:/app/src
+      - ./trainer.py:/app/trainer.py:ro
+      - models:/app/models
+      - outputs:/app/outputs
+      - mlruns:/app/mlruns
+
+  streamlit:
+    command:
+      - streamlit
+      - run
+      - app.py
+      - --server.address=0.0.0.0
+      - --server.port=8501
+      - --server.headless=true
+      - --server.runOnSave=true
+    volumes:
+      - ./app.py:/app/app.py
+      - ./src:/app/src
+      - ./trainer.py:/app/trainer.py:ro
+      - ./data:/app/data:ro
+      - models:/app/models
+      - outputs:/app/outputs
+      - mlruns:/app/mlruns
+
+  trainer:
+    volumes:
+      - ./src:/app/src
+      - ./trainer.py:/app/trainer.py
+      - ./data:/app/data:ro
+      - models:/app/models
+      - outputs:/app/outputs
+      - mlruns:/app/mlruns

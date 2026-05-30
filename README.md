@@ -234,6 +234,31 @@ cp .env.example .env
 docker compose up --build
 ```
 
+### Desarrollo rapido (sin rebuild por cada cambio)
+Este repositorio incluye `docker-compose.override.yml` para desarrollo local. Docker Compose lo carga automaticamente junto a `docker-compose.yml`.
+
+Que hace este override:
+- Monta `./src` dentro del contenedor (`/app/src`) para reflejar cambios al guardar.
+- Activa `uvicorn --reload` en la API.
+- Monta `app.py` y activa `--server.runOnSave=true` en Streamlit.
+
+Flujo recomendado:
+```bash
+# Primera vez o tras cambios en requirements/Dockerfile
+docker compose up -d --build
+
+# Desarrollo diario (cambios solo en codigo)
+docker compose up -d
+```
+
+En desarrollo, los cambios en `src/` y `app.py` se aplican sin reconstruir imagen.
+
+Debes reconstruir (`--build`) solo cuando cambies:
+- `requirements.txt`
+- `Dockerfile`
+- Dependencias del sistema instaladas por `apt`
+- Cualquier fichero que no este montado como volumen en el override
+
 Servicios expuestos:
 - API FastAPI: `http://localhost:8000`
 - Healthcheck API: `http://localhost:8000/health`
