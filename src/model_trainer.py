@@ -24,10 +24,15 @@ from src.data_loader import DataBundle
 
 try:
     from xgboost import XGBClassifier
-
     HAS_XGBOOST = True
 except ImportError:
     HAS_XGBOOST = False
+
+try:
+    from catboost import CatBoostClassifier
+    HAS_CATBOOST = True
+except ImportError:
+    HAS_CATBOOST = False
 
 
 class KerasClassifier(BaseEstimator, ClassifierMixin):
@@ -85,9 +90,65 @@ class KerasClassifier(BaseEstimator, ClassifierMixin):
         return (self.predict_proba(X)[:, 1] >= 0.5).astype(int)
 
 
+class CatBoostClassifierWrapper(BaseEstimator, ClassifierMixin):
+
+    def __init__(self, iterations: int = 100, learning_rate: float = 0.1, depth: int = 6) -> None:
+        self.iterations = iterations
+        self.learning_rate = learning_rate
+        self.depth = depth
+
+    def _prepare_features(self, X):
+        if not hasattr(X, "copy"):
+            return X
+
+        X_prepared = X.copy()
+        if not hasattr(X_prepared, "select_dtypes"):
+            return X_prepared
+
+        cat_cols = X_prepared.select_dtypes(exclude=["number"]).columns.tolist()
+        for col in cat_cols:
+            X_prepared[col] = X_prepared[col].fillna("Unknown").astype(str)
+        return X_prepared
+
+    def fit(self, X, y):
+        X_prepared = self._prepare_features(X)
+        cat_features = None
+        if hasattr(X_prepared, "select_dtypes"):
+            cat_features = X_prepared.select_dtypes(exclude=["number"]).columns.tolist()
+
+        self.model_ = CatBoostClassifier(
+            iterations=self.iterations,
+            learning_rate=self.learning_rate,
+            depth=self.depth,
+            verbose=0,
+        )
+        self.model_.fit(X_prepared, y, cat_features=cat_features)
+        return self
+
+    def evaluate(self, X_test, y_test) -> None:
+        from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
+
+        y_pred = self.predict(X_test)
+        acc = accuracy_score(y_test, y_pred)
+        conf = confusion_matrix(y_test, y_pred)
+        clf_report = classification_report(y_test, y_pred)
+
+        print(f"Accuracy Score of CatBoost Classifier is : {acc}")
+        print(f"Confusion Matrix : \n{conf}")
+        print(f"Classification Report : \n{clf_report}")
+
+    def predict_proba(self, X) -> np.ndarray:
+        X_prepared = self._prepare_features(X)
+        return self.model_.predict_proba(X_prepared)
+
+    def predict(self, X) -> np.ndarray:
+        X_prepared = self._prepare_features(X)
+        return self.model_.predict(X_prepared).flatten()
+
+
 @dataclass
 class TrainedModels:
-    models: Dict[str, Pipeline]
+    models: Dict[str, BaseEstimator]
     model_paths: Dict[str, Path]
 
 
@@ -109,6 +170,11 @@ class ModelTrainer:
             ),
             "gradient_boosting": self._build_gradient_boosting(),
         }
+
+        if HAS_CATBOOST:
+            estimators["catboost"] = CatBoostClassifierWrapper(
+                iterations=50 if self.quick_mode else 100,
+            )
 
         if not self.skip_neural_net:
             if not HAS_KERAS:
@@ -138,16 +204,19 @@ class ModelTrainer:
 
     def train_all(self) -> TrainedModels:
         estimators = self._get_estimators()
-        trained: Dict[str, Pipeline] = {}
+        trained: Dict[str, BaseEstimator] = {}
         paths: Dict[str, Path] = {}
 
         for name, estimator in estimators.items():
-            model = Pipeline(
-                steps=[
-                    ("preprocessor", self.data.preprocessor),
-                    ("classifier", estimator),
-                ]
-            )
+            if name == "catboost":
+                model = estimator
+            else:
+                model = Pipeline(
+                    steps=[
+                        ("preprocessor", self.data.preprocessor),
+                        ("classifier", estimator),
+                    ]
+                )
             model.fit(self.data.X_train, self.data.y_train)
             trained[name] = model
 
@@ -158,7 +227,7 @@ class ModelTrainer:
         return TrainedModels(models=trained, model_paths=paths)
 
     @staticmethod
-    def save_best_model(model: Pipeline, model_name: str) -> Path:
+    def save_best_model(model: BaseEstimator, model_name: str) -> Path:
         artifact = {
             "model_name": model_name,
             "model": model,
@@ -168,7 +237,7 @@ class ModelTrainer:
         return out_path
 
 
-def ensure_probabilities(model: Pipeline, X) -> np.ndarray:
+def ensure_probabilities(model: BaseEstimator, X) -> np.ndarray:
     if hasattr(model, "predict_proba"):
         return model.predict_proba(X)[:, 1]
     if hasattr(model, "decision_function"):

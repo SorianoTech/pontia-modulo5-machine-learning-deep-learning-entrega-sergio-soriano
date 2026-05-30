@@ -14,7 +14,8 @@ RUNS_DB_PATH = OUTPUTS_DIR / "runs.db"
 LEGACY_RUNS_REGISTRY_PATH = OUTPUTS_DIR / "runs_registry.json"
 
 TARGET_COLUMN = "is_canceled"
-LEAKAGE_COLUMNS = ["reservation_status", "reservation_status_date", "company", "agent"]
+LEAKAGE_COLUMNS = ["reservation_status", "reservation_status_date", "company", "agent", "arrival_date_day_of_month", "days_in_waiting_list", "arrival_date_week_number"]
+
 
 RANDOM_STATE = 42
 TEST_SIZE = 0.2
