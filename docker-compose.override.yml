@@ -11,7 +11,7 @@ services:
       - ${UVICORN_LOG_LEVEL:-info}
       - --reload
     volumes:
-      - .:/app
+      - ./src:/app/src
 
   streamlit:
     command:
