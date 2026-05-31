@@ -11,11 +11,7 @@ services:
       - ${UVICORN_LOG_LEVEL:-info}
       - --reload
     volumes:
-      - ./src:/app/src
-      - ./trainer.py:/app/trainer.py:ro
-      - models:/app/models
-      - outputs:/app/outputs
-      - mlruns:/app/mlruns
+      - .:/app
 
   streamlit:
     command:
@@ -27,19 +23,8 @@ services:
       - --server.headless=true
       - --server.runOnSave=true
     volumes:
-      - ./app.py:/app/app.py
-      - ./src:/app/src
-      - ./trainer.py:/app/trainer.py:ro
-      - ./data:/app/data:ro
-      - models:/app/models
-      - outputs:/app/outputs
-      - mlruns:/app/mlruns
+      - .:/app
 
   trainer:
     volumes:
-      - ./src:/app/src
-      - ./trainer.py:/app/trainer.py
-      - ./data:/app/data:ro
-      - models:/app/models
-      - outputs:/app/outputs
-      - mlruns:/app/mlruns
+      - .:/app
