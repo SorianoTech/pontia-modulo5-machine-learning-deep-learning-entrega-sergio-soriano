@@ -31,7 +31,7 @@ def load_raw_data(path: str | None = None) -> pd.DataFrame:
 def prepare_features(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
     working_df = df.copy()
 
-    # Eliminamos las filas que no tienen ningún huesped registrado, ya que no aportan información útil para predecir la cancelación de la reserva. Esto se hace filtrando el DataFrame para mantener solo las filas donde la columna "adults" es mayor que 0.
+    # Eliminamos las filas que no tienen ningún huesped registrado, ya que no aportan información útil para predecir la cancelación de la reserva. Esto se hace filtrando el DataFrame para mantener solo las filas donde la columna "adults", "children" y "babies" son diferentes de 0.
     filter = (df.children == 0) & (df.adults == 0) & (df.babies == 0)
     working_df = working_df[~filter]
 
