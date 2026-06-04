@@ -22,6 +22,11 @@ def health() -> dict[str, str]:
 
 @app.post("/train")
 def train_model(payload: TrainRequest) -> dict[str, Any]:
+    """Lanza el entrenamiento desde la API y persiste los metadatos generados.
+
+    :param payload: Opciones de ejecución recibidas en el cuerpo de la petición.
+    :returns: Resumen de la ejecución con métricas, rutas y metadatos del run.
+    """
     result = run_pipeline(
         quick_mode=payload.quick_mode,
         skip_neural_net=payload.skip_neural_net,
@@ -59,6 +64,12 @@ def train_model(payload: TrainRequest) -> dict[str, Any]:
 
 @app.post("/predict")
 def predict(payload: PredictRequest) -> dict[str, Any]:
+    """Ejecuta inferencia con el artefacto del mejor modelo disponible.
+
+    :param payload: Registro con las variables de entrada para una predicción.
+    :returns: Predicción binaria, probabilidad estimada y nombre del modelo.
+    :raises fastapi.HTTPException: Si todavía no existe ``best_model.pkl``.
+    """
     best_model_path = config.MODELS_DIR / "best_model.pkl"
     if not best_model_path.exists():
         raise HTTPException(status_code=400, detail="Model not found. Execute /train first.")
@@ -68,6 +79,12 @@ def predict(payload: PredictRequest) -> dict[str, Any]:
 
 @app.get("/evaluate")
 def evaluate() -> dict[str, Any]:
+    """Devuelve el resumen de evaluación almacenado por el último entrenamiento.
+
+    :returns: Métrica principal, mejor modelo, resultados tabulares y ruta del
+        fichero de métricas.
+    :raises fastapi.HTTPException: Si aún no existe el fichero de métricas.
+    """
     if not config.METRICS_PATH.exists():
         raise HTTPException(status_code=400, detail="Metrics not found. Execute /train first.")
 
@@ -82,6 +99,11 @@ def evaluate() -> dict[str, Any]:
 
 @app.get("/runs")
 def runs(limit: int = 20) -> dict[str, Any]:
+    """Lista las ejecuciones persistidas en el registro SQLite.
+
+    :param limit: Número máximo de ejecuciones a devolver.
+    :returns: Conteo, resultados y ruta del fichero de registro.
+    """
     safe_limit = max(1, min(limit, 200))
     results = list_runs(limit=safe_limit)
     return {
@@ -93,6 +115,12 @@ def runs(limit: int = 20) -> dict[str, Any]:
 
 @app.get("/runs/{run_id}")
 def run_detail(run_id: str) -> dict[str, Any]:
+    """Recupera una ejecución persistida a partir de su identificador.
+
+    :param run_id: Identificador único del run almacenado.
+    :returns: Diccionario con toda la información persistida del run.
+    :raises fastapi.HTTPException: Si el identificador no existe en el registro.
+    """
     run = get_run(run_id)
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")

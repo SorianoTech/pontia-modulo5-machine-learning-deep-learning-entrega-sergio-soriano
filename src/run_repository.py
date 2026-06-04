@@ -78,6 +78,14 @@ def _row_to_run(row: sqlite3.Row) -> dict[str, Any]:
 
 
 def register_run(payload: dict[str, Any]) -> dict[str, Any]:
+    """Persiste una ejecución de entrenamiento en SQLite y devuelve su contenido.
+
+    En la primera llamada migra, si existe, el registro legado en JSON a SQLite
+    y renombra el fichero original con el sufijo ``.migrated.json``.
+
+    :param payload: Información serializable de la ejecución que se desea guardar.
+    :returns: Diccionario persistido con ``id`` y ``created_at`` añadidos.
+    """
     _ensure_schema()
     _migrate_legacy_json_once()
 
@@ -102,6 +110,15 @@ def register_run(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def list_runs(limit: int | None = None) -> list[dict[str, Any]]:
+    """Devuelve las ejecuciones persistidas ordenadas de la más reciente a la más antigua.
+
+    En la primera llamada migra, si existe, el registro legado en JSON a SQLite
+    y renombra el fichero original con el sufijo ``.migrated.json``.
+
+    :param limit: Número máximo de ejecuciones a devolver. Si es ``None``, no se
+        aplica límite.
+    :returns: Lista de ejecuciones persistidas.
+    """
     _ensure_schema()
     _migrate_legacy_json_once()
 
@@ -117,6 +134,14 @@ def list_runs(limit: int | None = None) -> list[dict[str, Any]]:
 
 
 def get_run(run_id: str) -> dict[str, Any] | None:
+    """Recupera una ejecución persistida por identificador.
+
+    En la primera llamada migra, si existe, el registro legado en JSON a SQLite
+    y renombra el fichero original con el sufijo ``.migrated.json``.
+
+    :param run_id: Identificador único del run persistido.
+    :returns: Diccionario del run solicitado o ``None`` si no existe.
+    """
     _ensure_schema()
     _migrate_legacy_json_once()
 

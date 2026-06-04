@@ -204,6 +204,17 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
+## Documentacion con Sphinx
+La documentación técnica se genera automáticamente a partir de los docstrings del código.
+
+```bash
+# Desde la raíz del proyecto
+.venv\Scripts\activate
+sphinx-build -b html docs docs\_build\html
+```
+
+El HTML generado queda en `docs/_build/html/index.html`.
+
 ## Docker Compose
 Se incluye una configuracion lista para levantar todos los servicios como contenedores independientes.
 

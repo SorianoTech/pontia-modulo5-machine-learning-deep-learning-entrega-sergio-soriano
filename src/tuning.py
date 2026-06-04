@@ -36,6 +36,22 @@ def tune_pipeline(
     n_iter: int = config.DEFAULT_TUNING_ITER,
     scoring: str = config.PRIMARY_METRIC,
 ) -> tuple[Pipeline, dict[str, Any]]:
+    """Ajusta un pipeline de Random Forest con el espacio de búsqueda del proyecto.
+
+    Los parámetros de búsqueda apuntan a opciones ``classifier__*`` del
+    clasificador, por lo que este helper está pensado para pipelines cuya etapa
+    ``classifier`` sea un ``RandomForestClassifier``.
+
+    :param pipeline: Pipeline base que se va a optimizar.
+    :param X_train: Variables predictoras de entrenamiento.
+    :param y_train: Etiquetas del entrenamiento.
+    :param method: Método de búsqueda, ``grid`` o ``randomized``.
+    :param cv: Número de folds para validación cruzada.
+    :param n_iter: Número de iteraciones cuando ``method`` es ``randomized``.
+    :param scoring: Métrica usada para seleccionar el mejor modelo.
+    :returns: Tupla con el mejor pipeline encontrado y sus metadatos de búsqueda.
+    :raises ValueError: Si ``method`` no es ``grid`` ni ``randomized``.
+    """
     method = method.lower().strip()
     grid_space, random_space = _random_forest_space()
 

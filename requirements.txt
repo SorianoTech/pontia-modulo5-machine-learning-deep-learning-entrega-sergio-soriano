@@ -17,3 +17,4 @@ ipykernel==7.2.0
 pytest==8.3.5
 tensorflow==2.15.1
 catboost==1.2.10
+sphinx==8.2.3

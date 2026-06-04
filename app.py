@@ -17,6 +17,12 @@ API_URL = os.getenv("API_URL", "http://api:8000")
 
 
 def _sanitize_for_json(value):
+    """Normaliza valores anidados para que puedan serializarse como JSON.
+
+    :param value: Valor escalar o estructura anidada que puede contener objetos
+        de pandas.
+    :returns: Estructura equivalente formada solo por tipos compatibles con JSON.
+    """
     if isinstance(value, dict):
         return {k: _sanitize_for_json(v) for k, v in value.items()}
     if isinstance(value, list):
@@ -27,6 +33,12 @@ def _sanitize_for_json(value):
 
 
 def _parse_payload(text: str) -> dict:
+    """Interpreta el texto introducido en la UI como JSON o literal de Python.
+
+    :param text: Contenido pegado por el usuario en el cuadro de texto.
+    :returns: Diccionario listo para enviarse al flujo de predicción.
+    :raises ValueError: Si el contenido no representa un diccionario.
+    """
     # Prefer strict JSON parsing first.
     try:
         payload = json.loads(text)

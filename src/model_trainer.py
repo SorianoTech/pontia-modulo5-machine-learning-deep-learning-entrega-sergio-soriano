@@ -36,8 +36,20 @@ except ImportError:
 
 
 class KerasClassifier(BaseEstimator, ClassifierMixin):
+    """Adaptador compatible con scikit-learn para un clasificador binario en Keras.
+
+    :param epochs: Número de épocas de entrenamiento.
+    :param batch_size: Tamaño de lote usado por Keras durante el ajuste.
+    :param learning_rate: Tasa de aprendizaje del optimizador Adam.
+    """
 
     def __init__(self, epochs: int = 50, batch_size: int = 256, learning_rate: float = 0.001) -> None:
+        """Guarda los hiperparámetros de entrenamiento de la red neuronal.
+
+        :param epochs: Número de pasadas completas sobre el conjunto de datos.
+        :param batch_size: Número de muestras procesadas en cada actualización.
+        :param learning_rate: Tasa de aprendizaje del optimizador.
+        """
 
         # Número de veces que el modelo verá todos los datos de entrenamiento
         self.epochs = epochs
@@ -49,6 +61,12 @@ class KerasClassifier(BaseEstimator, ClassifierMixin):
         self.learning_rate = learning_rate
 
     def fit(self, X, y):
+        """Ajusta la red neuronal sobre matrices de características ya transformadas.
+
+        :param X: Matriz de características preprocesadas.
+        :param y: Etiquetas binarias del entrenamiento.
+        :returns: La propia instancia ajustada.
+        """
 
         # Keras trabaja con float32; el preprocesador de sklearn devuelve float64
         X = np.array(X, dtype="float32")
@@ -76,6 +94,11 @@ class KerasClassifier(BaseEstimator, ClassifierMixin):
         return self
 
     def predict_proba(self, X) -> np.ndarray:
+        """Devuelve probabilidades en el formato de dos columnas de scikit-learn.
+
+        :param X: Matriz de entrada ya preprocesada.
+        :returns: Matriz ``(n_muestras, 2)`` con probabilidades por clase.
+        """
         X = np.array(X, dtype="float32")
 
         # model_.predict devuelve shape (n, 1) → flatten lo convierte a (n,)
@@ -85,14 +108,36 @@ class KerasClassifier(BaseEstimator, ClassifierMixin):
         return np.column_stack([1 - proba, proba])
 
     def predict(self, X) -> np.ndarray:
+        """Predice la clase binaria usando un umbral de probabilidad de 0.5.
+
+        :param X: Matriz de entrada ya preprocesada.
+        :returns: Vector de predicciones binarias.
+        """
         
         # Si la probabilidad de cancelación supera 0.5 → predice 1 (cancelado)
         return (self.predict_proba(X)[:, 1] >= 0.5).astype(int)
 
 
 class CatBoostClassifierWrapper(BaseEstimator, ClassifierMixin):
+    """Adaptador de CatBoost para trabajar con ``DataFrame`` sin preprocesado común.
+
+    A diferencia del resto de estimadores del proyecto, este wrapper no usa el
+    :class:`~sklearn.compose.ColumnTransformer` compartido. Espera datos
+    tabulares en bruto y normaliza las columnas categóricas antes de delegar en
+    CatBoost.
+
+    :param iterations: Número máximo de iteraciones del algoritmo.
+    :param learning_rate: Tasa de aprendizaje usada por CatBoost.
+    :param depth: Profundidad máxima de los árboles.
+    """
 
     def __init__(self, iterations: int = 100, learning_rate: float = 0.1, depth: int = 6) -> None:
+        """Guarda los hiperparámetros de CatBoost usados durante el ajuste.
+
+        :param iterations: Número máximo de iteraciones del algoritmo.
+        :param learning_rate: Tasa de aprendizaje usada por CatBoost.
+        :param depth: Profundidad máxima de los árboles.
+        """
         self.iterations = iterations
         self.learning_rate = learning_rate
         self.depth = depth
@@ -111,6 +156,12 @@ class CatBoostClassifierWrapper(BaseEstimator, ClassifierMixin):
         return X_prepared
 
     def fit(self, X, y):
+        """Ajusta el clasificador CatBoost envuelto sobre variables en bruto.
+
+        :param X: Datos tabulares sin transformar.
+        :param y: Etiquetas binarias del entrenamiento.
+        :returns: La propia instancia ajustada.
+        """
         X_prepared = self._prepare_features(X)
         cat_features = None
         if hasattr(X_prepared, "select_dtypes"):
@@ -126,6 +177,13 @@ class CatBoostClassifierWrapper(BaseEstimator, ClassifierMixin):
         return self
 
     def evaluate(self, X_test, y_test) -> None:
+        """Imprime métricas de diagnóstico para inspección manual de CatBoost.
+
+        Este helper no se utiliza en la canalización principal de entrenamiento.
+
+        :param X_test: Variables predictoras del conjunto de prueba.
+        :param y_test: Etiquetas reales del conjunto de prueba.
+        """
         from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
 
         y_pred = self.predict(X_test)
@@ -138,22 +196,50 @@ class CatBoostClassifierWrapper(BaseEstimator, ClassifierMixin):
         print(f"Classification Report : \n{clf_report}")
 
     def predict_proba(self, X) -> np.ndarray:
+        """Devuelve las probabilidades de clase estimadas por CatBoost.
+
+        :param X: Muestras sobre las que se desea inferir.
+        :returns: Matriz de probabilidades por clase.
+        """
         X_prepared = self._prepare_features(X)
         return self.model_.predict_proba(X_prepared)
 
     def predict(self, X) -> np.ndarray:
+        """Predice la variable objetivo binaria con el modelo CatBoost envuelto.
+
+        :param X: Muestras sobre las que se desea inferir.
+        :returns: Vector de predicciones binarias.
+        """
         X_prepared = self._prepare_features(X)
         return self.model_.predict(X_prepared).flatten()
 
 
 @dataclass
 class TrainedModels:
+    """Agrupa los modelos ajustados y las rutas de sus artefactos persistidos.
+
+    :param models: Diccionario ``nombre -> modelo`` ya entrenado.
+    :param model_paths: Diccionario ``nombre -> ruta`` del artefacto serializado.
+    """
     models: Dict[str, BaseEstimator]
     model_paths: Dict[str, Path]
 
 
 class ModelTrainer:
+    """Entrena, persiste y expone los modelos candidatos configurados.
+
+    :param data_bundle: Paquete de datos preparado para entrenamiento.
+    :param quick_mode: Si es ``True``, reduce el coste computacional del ajuste.
+    :param skip_neural_net: Si es ``True``, omite el modelo neuronal.
+    """
+
     def __init__(self, data_bundle: DataBundle, quick_mode: bool = False, skip_neural_net: bool = False) -> None:
+        """Almacena los datos y las opciones de ejecución del entrenamiento.
+
+        :param data_bundle: Datos particionados y preprocesador compartido.
+        :param quick_mode: Activa una versión más rápida del entrenamiento.
+        :param skip_neural_net: Omite el modelo neuronal cuando vale ``True``.
+        """
         self.data = data_bundle
         self.quick_mode = quick_mode
         self.skip_neural_net = skip_neural_net
@@ -203,6 +289,17 @@ class ModelTrainer:
         return GradientBoostingClassifier(random_state=config.RANDOM_STATE)
 
     def train_all(self) -> TrainedModels:
+        """Entrena todos los modelos configurados y guarda sus artefactos individuales.
+
+        Este método persiste un artefacto ``models\\<name>.pkl`` por candidato.
+        La selección del ganador y su almacenamiento en ``best_model.pkl`` se
+        delegan en :meth:`save_best_model`.
+
+        :returns: Instancia de :class:`TrainedModels` con los modelos ajustados y
+            sus rutas de salida.
+        :raises ImportError: Si se solicita la red neuronal y TensorFlow no está
+            instalado.
+        """
         estimators = self._get_estimators()
         trained: Dict[str, BaseEstimator] = {}
         paths: Dict[str, Path] = {}
@@ -228,6 +325,16 @@ class ModelTrainer:
 
     @staticmethod
     def save_best_model(model: BaseEstimator, model_name: str) -> Path:
+        """Guarda el modelo ganador como un artefacto estructurado ``best_model.pkl``.
+
+        El objeto serializado es un diccionario con las claves ``model_name`` y
+        ``model``, por lo que debe cargarse mediante
+        :func:`src.predictor.load_best_model`.
+
+        :param model: Modelo entrenado seleccionado como ganador.
+        :param model_name: Nombre lógico del modelo ganador.
+        :returns: Ruta del artefacto generado.
+        """
         artifact = {
             "model_name": model_name,
             "model": model,
@@ -238,7 +345,18 @@ class ModelTrainer:
 
 
 def ensure_probabilities(model: BaseEstimator, X) -> np.ndarray:
+    """Obtiene puntuaciones de la clase positiva usando la mejor interfaz disponible.
+
+    El helper prioriza ``predict_proba()``, después ``decision_function()``
+    normalizada y, como último recurso, usa las predicciones directas del
+    modelo.
+
+    :param model: Estimador entrenado compatible con alguna interfaz de scoring.
+    :param X: Muestras sobre las que se calcula la puntuación.
+    :returns: Vector unidimensional con puntuaciones de la clase positiva.
+    """
     if hasattr(model, "predict_proba"):
+        # devuelve la probabilidad de la clase positiva (índice 1)(la de cancelacion) para cada muestra
         return model.predict_proba(X)[:, 1]
     if hasattr(model, "decision_function"):
         scores = model.decision_function(X)

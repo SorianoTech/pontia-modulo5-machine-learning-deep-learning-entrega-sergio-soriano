@@ -25,12 +25,29 @@ from src.model_trainer import ensure_probabilities
 
 
 class Evaluator:
+    """Evalúa modelos entrenados y genera artefactos de comparación.
+
+    :param y_true: Etiquetas reales del conjunto de prueba.
+    :param X_test: Variables predictoras sobre las que se evalúan los modelos.
+    :param models: Diccionario ``nombre -> modelo`` ya ajustado.
+    """
+
     def __init__(self, y_true: pd.Series, X_test: pd.DataFrame, models: Dict[str, object]) -> None:
+        """Guarda las referencias necesarias para evaluar los modelos.
+
+        :param y_true: Etiquetas reales del conjunto de prueba.
+        :param X_test: Variables predictoras del conjunto de prueba.
+        :param models: Modelos ajustados que se van a comparar.
+        """
         self.y_true = y_true
         self.X_test = X_test
         self.models = models
 
     def evaluate(self) -> pd.DataFrame:
+        """Calcula métricas de ranking, guarda el CSV resumen y lo devuelve.
+
+        :returns: Tabla ordenada por la métrica principal configurada.
+        """
         rows = []
         for name, model in self.models.items():
             y_pred = model.predict(self.X_test)
@@ -52,6 +69,11 @@ class Evaluator:
         return df
 
     def plot_roc_curves(self, output_path: Path | None = None) -> Path:
+        """Genera y guarda la gráfica ROC comparativa de los modelos evaluados.
+
+        :param output_path: Ruta de salida opcional para la imagen.
+        :returns: Ruta del fichero PNG generado.
+        """
         path = output_path if output_path else config.OUTPUTS_DIR / "roc_curves.png"
 
         plt.figure(figsize=(10, 7))
@@ -72,6 +94,10 @@ class Evaluator:
         return path
 
     def plot_confusion_matrices(self) -> list[Path]:
+        """Genera y guarda una matriz de confusión por cada modelo evaluado.
+
+        :returns: Lista de rutas de los ficheros generados.
+        """
         outputs = []
         for name, model in self.models.items():
             y_pred = model.predict(self.X_test)
@@ -87,6 +113,13 @@ class Evaluator:
         return outputs
 
     def plot_feature_importance(self, model_name: str = "random_forest") -> Path | None:
+        """Guarda una gráfica de importancia de variables si el modelo la expone.
+
+        :param model_name: Nombre del modelo del que se desea extraer la
+            importancia de variables.
+        :returns: Ruta de la imagen generada o ``None`` si el modelo no ofrece
+            importancias.
+        """
         if model_name not in self.models:
             return None
 

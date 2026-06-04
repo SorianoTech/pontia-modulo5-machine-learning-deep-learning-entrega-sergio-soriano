@@ -15,6 +15,19 @@ from src import config
 
 @dataclass
 class DataBundle:
+    """Agrupa los datos particionados y el preprocesador compartido del proyecto.
+
+    El atributo ``preprocessor`` contiene un :class:`~sklearn.compose.ColumnTransformer`
+    sin ajustar, construido a partir del esquema de entrenamiento y reutilizado
+    dentro de cada pipeline de modelo.
+
+    :param X_train: Variables predictoras del conjunto de entrenamiento.
+    :param X_test: Variables predictoras del conjunto de prueba.
+    :param y_train: Etiquetas del conjunto de entrenamiento.
+    :param y_test: Etiquetas del conjunto de prueba.
+    :param preprocessor: Transformador de columnas compartido por los modelos.
+    :param feature_names: Nombres originales de las variables predictoras.
+    """
     X_train: pd.DataFrame
     X_test: pd.DataFrame
     y_train: pd.Series
@@ -24,11 +37,28 @@ class DataBundle:
 
 
 def load_raw_data(path: str | None = None) -> pd.DataFrame:
+    """Carga el conjunto de datos crudo desde la ruta CSV configurada.
+
+    :param path: Ruta alternativa al CSV. Si es ``None``, se usa
+        :data:`src.config.DATA_PATH`.
+    :returns: Datos originales leídos en un :class:`pandas.DataFrame`.
+    """
     csv_path = path if path else str(config.DATA_PATH)
     return pd.read_csv(csv_path)
 
 
 def prepare_features(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
+    """Prepara las variables predictoras y la etiqueta objetivo para el modelado.
+
+    El proceso rellena valores faltantes relevantes, agrupa países poco
+    frecuentes, crea la característica ``has_agent`` y elimina columnas con
+    fuga de información antes de separar ``X`` e ``y``.
+
+    :param df: Conjunto de datos crudo.
+    :returns: Tupla ``(X, y)`` con las características procesadas y la variable
+        objetivo.
+    :raises ValueError: Si la columna objetivo configurada no está presente.
+    """
     working_df = df.copy()
     # La columna "children" se rellena con 0 donde hay valores nulos. (Significa que no hay niños en la reserva)
     working_df["children"] = working_df["children"].fillna(0)
@@ -63,6 +93,13 @@ def prepare_features(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
 
 
 def build_preprocessor(X: pd.DataFrame) -> ColumnTransformer:
+    """Construye el preprocesador no ajustado compartido por los modelos.
+
+    :param X: Datos de entrada usados para inferir columnas numéricas y
+        categóricas.
+    :returns: :class:`~sklearn.compose.ColumnTransformer` con imputación,
+        escalado y codificación categórica.
+    """
     # Se identifican las columnas numéricas y categóricas en el DataFrame X. Las columnas numéricas se seleccionan utilizando select_dtypes con include=["number"].
     # mientras que las columnas categóricas se seleccionan utilizando exclude=["number"].
     numeric_features = X.select_dtypes(include=["number"]).columns.tolist()
@@ -93,6 +130,13 @@ def build_preprocessor(X: pd.DataFrame) -> ColumnTransformer:
 # La función split_data utiliza train_test_split de scikit-learn para dividir el conjunto de datos en entrenamiento y prueba. Se especifica un tamaño de prueba (test_size) y una semilla aleatoria (random_state) para garantizar la reproducibilidad.
 #  Además, se utiliza stratify=y para asegurar que la proporción de clases en la variable objetivo se mantenga igual en ambos conjuntos, lo que es especialmente importante en problemas de clasificación con clases desbalanceadas.
 def split_data(X: pd.DataFrame, y: pd.Series) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series, pd.Series]:
+    """Genera la partición estratificada de entrenamiento y prueba.
+
+    :param X: Variables predictoras ya preparadas.
+    :param y: Variable objetivo alineada con ``X``.
+    :returns: Tupla ``(X_train, X_test, y_train, y_test)`` según la
+        configuración del proyecto.
+    """
     return train_test_split(
         X,
         y,
@@ -103,6 +147,12 @@ def split_data(X: pd.DataFrame, y: pd.Series) -> tuple[pd.DataFrame, pd.DataFram
 
 # La función build_data_bundle es la función principal que orquesta todo el proceso de carga y preparación de datos. Primero, carga los datos crudos utilizando load_raw_data, luego prepara las características y la variable objetivo con prepare_features, divide los datos en conjuntos de entrenamiento y prueba con split_data, y finalmente construye el preprocesador con build_preprocessor.
 def build_data_bundle(path: str | None = None) -> DataBundle:
+    """Construye el paquete de datos completo consumido por el entrenamiento.
+
+    :param path: Ruta alternativa al CSV de entrada.
+    :returns: Instancia de :class:`DataBundle` con datos particionados y
+        preprocesador compartido.
+    """
     df = load_raw_data(path)
     X, y = prepare_features(df)
     X_train, X_test, y_train, y_test = split_data(X, y)

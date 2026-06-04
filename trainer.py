@@ -17,6 +17,11 @@ from src.tuning import tune_pipeline
 
 
 def _to_float_metrics(row: dict) -> dict[str, float]:
+    """Convierte una fila de métricas en un diccionario compuesto solo por flotantes.
+
+    :param row: Fila de métricas que incluye la clave ``model`` y valores numéricos.
+    :returns: Diccionario con todas las métricas numéricas convertidas a ``float``.
+    """
     out = {}
     for key, value in row.items():
         if key == "model":
@@ -26,6 +31,11 @@ def _to_float_metrics(row: dict) -> dict[str, float]:
 
 
 def _elapsed_seconds(start_time: float) -> float:
+    """Calcula el tiempo transcurrido en segundos con precisión de milisegundos.
+
+    :param start_time: Marca temporal devuelta por :func:`time.perf_counter`.
+    :returns: Tiempo transcurrido redondeado a tres decimales.
+    """
     return round(perf_counter() - start_time, 3)
 
 
@@ -39,6 +49,30 @@ def run_pipeline(
     tuning_iter: int = config.DEFAULT_TUNING_ITER,
     enable_mlflow: bool = True,
 ):
+    """Ejecuta la canalización completa de entrenamiento y persiste sus artefactos.
+
+    La ejecución carga los datos, entrena todos los modelos configurados,
+    genera métricas y gráficas en ``outputs\\`` y guarda el ganador en
+    ``models\\best_model.pkl``. Si MLflow está habilitado, también registra la
+    ejecución, las métricas, los artefactos y el modelo ganador en el backend
+    de seguimiento configurado.
+
+    :param data_path: Ruta alternativa al CSV de entrada. Si es ``None``, se usa
+        :data:`src.config.DATA_PATH`.
+    :param quick_mode: Si es ``True``, reduce la carga de entrenamiento para
+        comprobaciones rápidas.
+    :param skip_neural_net: Si es ``True``, omite el modelo de red neuronal.
+    :param enable_tuning: Activa el ajuste de hiperparámetros del ganador cuando
+        procede.
+    :param tuning_method: Estrategia de búsqueda, ``grid`` o ``randomized``.
+    :param tuning_cv: Número de particiones usadas en validación cruzada.
+    :param tuning_iter: Número de iteraciones para
+        :class:`sklearn.model_selection.RandomizedSearchCV`.
+    :param enable_mlflow: Indica si la ejecución debe registrarse en MLflow.
+    :returns: Diccionario con el nombre del mejor modelo, sus rutas asociadas,
+        el resumen de métricas, la información de tuning y el identificador de
+        la ejecución de MLflow si existe.
+    """
     mlflow_run_id = None
     tracker = MLflowTracker() if enable_mlflow else None
     run_name = f"pipeline-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
